@@ -10,13 +10,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
     }
     let ja = lang == "ja";
     match key {
-        "app" => {
-            if ja {
-                "T1-Customizer"
-            } else {
-                "T1-Customizer"
-            }
-        }
+        "app" => "T1-Customizer",
         "connected" => {
             if ja {
                 "接続中"
