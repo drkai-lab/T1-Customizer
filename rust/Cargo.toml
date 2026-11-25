@@ -1,0 +1,88 @@
+[package]
+name = "t1_keyboard_config"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.95"
+description = "T1-Customizer: free T1 mini keyboard configuration tool"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "t1-keyboard-config"
+path = "src/bin/t1-keyboard-config.rs"
+
+[[bin]]
+name = "t1-keyboard-config-gui"
+path = "src/bin/t1-keyboard-config-gui.rs"
+
+[features]
+default = []
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+eframe = { version = "0.36.2", features = ["default", "glow"] }
+egui = "0.36.2"
+fs2 = "0.4.3"
+image = "0.25.10"
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+tray-icon = "0.26.1"
+zip = "9.0.0"
+flate2 = "1.1.10"
+ttf-parser = "0.25.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.13.2"
+gtk = "0.18.2"
+tray-icon = { version = "0.26.1", features = ["libappindicator"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_HumanInterfaceDevice",
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_UI_Input",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10.1"
+core-graphics = "0.25.0"
+hidapi = { version = "2.6.7", default-features = false, features = ["macos-shared-device"] }
+objc2 = "0.6.5"
+objc2-foundation = "0.3.2"
+
+[build-dependencies]
+winresource = "0.1.31"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+split-debuginfo = "off"
+
+[profile.dev]
+# Keep test builds usable on the CI runner.
+opt-level = 0

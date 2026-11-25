@@ -1,0 +1,5 @@
+# Static CRT. The MSVC exe then does not need the VC++ redistributable
+# (VCRUNTIME140.dll / api-ms-win-crt-*).
+# A RUSTFLAGS environment variable replaces this entry. CI sets both.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

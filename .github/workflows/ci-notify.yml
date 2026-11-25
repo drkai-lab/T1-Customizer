@@ -1,0 +1,30 @@
+name: ci-notify
+
+# A job that fails before any step starts never reaches its own
+# `if: failure()` notify step. This workflow looks at the finished run
+# and posts only the billing / runner message (zero steps).
+on:
+  workflow_run:
+    workflows: ["build"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  ntfy:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    # thx-t1 (a9-wsl-t1 is retired).
+    runs-on: [self-hosted, Windows, X64, t1-windows]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Notify ntfy when no step ran
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_RUN_ID: ${{ github.event.workflow_run.id }}
+          GITHUB_REF_NAME: ${{ github.event.workflow_run.head_branch }}
+          GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: python scripts/ci_notify_ntfy.py --only-environment
