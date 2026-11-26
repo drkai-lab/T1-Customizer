@@ -46,11 +46,29 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: ./windows/build-release.ps1
+      - name: Build portable zip (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF_NAME -replace '^v', ''
+          $pkg = "portable/T1-Customizer"
+          New-Item -ItemType Directory -Force $pkg | Out-Null
+          Copy-Item dist-win/t1-keyboard-config.exe, dist-win/t1-keyboard-config-gui.exe $pkg
+          Copy-Item -Recurse icons "$pkg/icons"
+          Copy-Item LICENSE $pkg
+          @(
+            "T1-Customizer $ver - Portable (Windows)"
+            ""
+            "Install is not required. Unzip anywhere and run t1-keyboard-config-gui.exe."
+            "No VC++ runtime is needed (statically linked)."
+          ) | Set-Content "$pkg/README-portable.txt"
+          Compress-Archive -Path $pkg -DestinationPath "dist-win/t1-customizer-$ver-portable.zip"
       - name: Publish release assets (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist-win/t1-customizer-*-setup.exe
+            dist-win/t1-customizer-*-portable.zip
             dist-win/t1-keyboard-config.exe
             dist-win/t1-keyboard-config-gui.exe
