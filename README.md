@@ -14,6 +14,7 @@ English | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [한국�
 ## What it does
 
 - Key assignments (up to 5 modifier-combination groups per key)
+- App presets: one click writes Adobe Premiere / Illustrator / Photoshop 2026 shortcut sets to KEY1–KEY6 (see `docs/app-presets.md`)
 - Named modifier combinations, multimedia keys, mouse actions, LED modes
 - Preset 1/2/3 switching and flashing to the keyboard
 - Dial rotation → OS volume (microphone / headphone), dial press switches

@@ -11,6 +11,27 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
     let ja = lang == "ja";
     match key {
         "app" => "T1-Customizer",
+        "app_presets" => {
+            if ja {
+                "アプリプリセット"
+            } else {
+                "App presets"
+            }
+        }
+        "app_preset_applied" => {
+            if ja {
+                "プリセットを書き込みました"
+            } else {
+                "Preset written"
+            }
+        }
+        "app_preset_partial" => {
+            if ja {
+                "プリセットの一部だけ書き込みました（{ok}/6）"
+            } else {
+                "Preset partially written ({ok}/6)"
+            }
+        }
         "connected" => {
             if ja {
                 "接続中"

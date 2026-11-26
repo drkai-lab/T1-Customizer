@@ -14,6 +14,9 @@ pub fn tr(key: &str) -> Option<&'static str> {
 fn window(key: &str) -> Option<&'static str> {
     Some(match key {
         "app" => "T1-Customizer",
+        "app_presets" => "앱 프리셋",
+        "app_preset_applied" => "프리셋을 썼습니다",
+        "app_preset_partial" => "프리셋 일부만 썼습니다 ({ok}/6)",
         "connected" => "연결됨",
         "disconnected" => "연결 안 됨",
         "download_ok" => "쓰기 성공",

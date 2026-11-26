@@ -5,6 +5,7 @@
 //! hardware configuration core is unchanged, so existing `settings.json`
 //! files for the remaining fields still load.
 
+pub mod app_presets;
 pub mod cli;
 pub mod device;
 pub mod edition;

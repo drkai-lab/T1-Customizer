@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::VERSION;
+use crate::app_presets;
 use crate::device::{DeviceError, T1Device};
 use crate::edition;
 use crate::gui::fonts;
@@ -314,6 +315,60 @@ impl App {
             },
             ok,
         );
+    }
+
+    fn page_keys(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label(self.t("app_presets"));
+            ui.horizontal_wrapped(|ui| {
+                for preset in &app_presets::APP_PRESETS {
+                    if ui.button(preset.name).clicked() {
+                        self.apply_app_preset(preset);
+                    }
+                }
+            });
+        });
+        ui.add_space(4.0);
+        self.page_list(ui, USAGE_KEYS.iter().map(|(n, _)| *n).collect(), true);
+    }
+
+    fn apply_app_preset(&mut self, preset: &app_presets::AppPreset) {
+        if !self.device.is_open() {
+            self.toast = self.t("need_device").to_string();
+            return;
+        }
+        let mut written = 0usize;
+        for (index, preset_key) in preset.keys.iter().enumerate() {
+            let keynum = (index + 1) as u8;
+            let combo = [(preset_key.mods, preset_key.usage)];
+            if !self.device.write_key(keynum, self.layer, &combo, 0) {
+                continue;
+            }
+            written += 1;
+            self.selected = Some(keynum);
+            let desc = app_presets::description(preset_key);
+            self.finish_key_write(
+                keynum,
+                &desc,
+                Written::Keys {
+                    keys: combo.to_vec(),
+                    lone: 0,
+                },
+                true,
+            );
+        }
+        if written == preset.keys.len() {
+            self.status = self.t("app_preset_applied").to_string();
+            self.toast = self.status.clone();
+        } else if written > 0 {
+            let line = self
+                .t("app_preset_partial")
+                .replace("{ok}", &written.to_string());
+            self.status = line.clone();
+            self.toast = line;
+        } else {
+            self.note_result(self.t("download_ng").to_string(), false);
+        }
     }
 
     fn staged_mods(&self) -> u8 {
@@ -856,7 +911,7 @@ impl App {
             });
             ui.separator();
             match self.page {
-                0 => self.page_list(ui, USAGE_KEYS.iter().map(|(n, _)| *n).collect(), true),
+                0 => self.page_keys(ui),
                 1 => self.page_modifiers(ui),
                 2 => self.page_actions(ui, keys::MEDIA_ACTIONS, true),
                 3 => self.page_actions(ui, keys::MOUSE_ACTIONS, false),

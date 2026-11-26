@@ -1,5 +1,9 @@
 # 変更履歴
 
+## Unreleased
+
+- アプリプリセットを追加。「キー」ページから Adobe Premiere 2026 / Illustrator 2026 / Photoshop 2026 の定番ショートカット一式を KEY1〜KEY6（現在のプリセット）に一括で書き込める。内容と出典は `docs/app-presets.md`。
+
 ## T1-Customizer 1.0.0
 
 T1-VREmoKey（えもかえる）2.2.4（AppWizz Kai）からのフォーク初版。無料版として公開するために、次を外した。
