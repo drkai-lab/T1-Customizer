@@ -16,7 +16,9 @@ fn window(key: &str) -> Option<&'static str> {
         "app" => "T1-Customizer",
         "app_presets" => "앱 프리셋",
         "app_preset_applied" => "프리셋을 썼습니다",
-        "app_preset_partial" => "프리셋 일부만 썼습니다 ({ok}/6)",
+        "app_preset_partial" => "프리셋 일부만 썼습니다 ({ok}개)",
+        "app_preset_knob" => "노브 회전도 썼습니다",
+        "app_preset_knob_skip" => "노브 회전은 키 할당 모드일 때만 쓸 수 있습니다",
         "connected" => "연결됨",
         "disconnected" => "연결 안 됨",
         "download_ok" => "쓰기 성공",
@@ -87,7 +89,7 @@ fn window(key: &str) -> Option<&'static str> {
         "dial_press_cycle" => "볼륨 모드 전환",
         "dial_press_key" => "키 할당",
         "dial_press_note" => {
-            "키 할당에서는 누르기로 모드가 전환되지 않습니다. 키 화면에서 K1-C / K2-C를 선택해 쓰세요"
+            "키 할당에서는 누르기 / 왼쪽 돌리기 / 오른쪽 돌리기를 모두 키 화면에서 할당할 수 있습니다. 노브는 모드 전환도 볼륨 변경도 하지 않습니다"
         }
         "help_heading" => "키 설정 방법",
         "addr_invalid" => "주소는 /로 시작해야 합니다",

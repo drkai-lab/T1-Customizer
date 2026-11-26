@@ -19,9 +19,12 @@ English | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [한국�
 - Preset 1/2/3 switching and flashing to the keyboard
 - Dial rotation → OS volume (microphone / headphone), dial press switches
   the mode; the listener stays in the tray
-- Knob press choice: on the Dial page, pick whether a knob press switches
-  the volume mode (default) or acts as a key — in key mode, K1-C / K2-C
-  can be selected on the key panel and written like any other key
+- Knob press choice: on the Dial page, pick whether the knob switches
+  the volume mode (default) or acts as keys — in key mode, all three
+  knob patterns (press K1-C / K2-C, rotate left, rotate right) can be
+  selected on the key panel and written like any other key
+- CLIP STUDIO PAINT preset knob rotation: in key mode, applying the
+  preset also writes canvas Rotate Left / Right to K1-L / K1-R
 - `settings.json` is portable across Linux / Windows / macOS (all codes
   stored as Linux evdev codes). Settings written by the original app for
   these features load unchanged; settings for removed features are

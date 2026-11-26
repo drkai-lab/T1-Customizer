@@ -273,11 +273,12 @@ impl App {
         crate::resident::press_action(&self.settings) == crate::resident::PressAction::Key
     }
 
-    /// Slots the user may write: KEY1..KEY6 always, plus the knob presses
-    /// K1-C (14) and K2-C (17) while the press is a key assignment. The
-    /// knob rotations stay read-only here: the resident listener owns them.
-    fn knob_press_selectable(&self, num: u8) -> bool {
-        num <= T1_KEY_COUNT || (self.press_is_key() && (num == 14 || num == 17))
+    /// Slots the user may write: KEY1..KEY6 always, plus all six knob
+    /// slots K1-L/C/R (13..15) and K2-L/C/R (16..18) while the knob is a
+    /// key assignment. In cycle mode the resident listener owns the knob,
+    /// so those slots stay read-only.
+    fn key_slot_selectable(&self, num: u8) -> bool {
+        num <= T1_KEY_COUNT || (self.press_is_key() && (13..=18).contains(&num))
     }
 
     fn require_key(&mut self) -> bool {
@@ -287,7 +288,7 @@ impl App {
         }
         if self
             .selected
-            .is_some_and(|key| !self.knob_press_selectable(key))
+            .is_some_and(|key| !self.key_slot_selectable(key))
         {
             self.toast = self.t("gray_keys").to_string();
             return false;
@@ -372,8 +373,44 @@ impl App {
                 true,
             );
         }
-        if written == preset.keys.len() {
+        // A preset may also carry a knob rotation pair (CLIP STUDIO
+        // PAINT). It goes to K1-L / K1-R, and only in key assignment
+        // mode: in cycle mode the resident owns the knob.
+        let mut total = preset.keys.len();
+        let mut knob_note: Option<&str> = None;
+        if let Some(knob) = &preset.knob {
+            if self.press_is_key() {
+                total += 2;
+                for (keynum, preset_key) in [(13u8, &knob.left), (15, &knob.right)] {
+                    let combo = [(preset_key.mods, preset_key.usage)];
+                    if !self.device.write_key(keynum, self.layer, &combo, 0) {
+                        continue;
+                    }
+                    written += 1;
+                    self.selected = Some(keynum);
+                    let desc = app_presets::description(preset_key);
+                    self.finish_key_write(
+                        keynum,
+                        &desc,
+                        Written::Keys {
+                            keys: combo.to_vec(),
+                            lone: 0,
+                        },
+                        true,
+                    );
+                }
+                if written == total {
+                    knob_note = Some("app_preset_knob");
+                }
+            } else {
+                knob_note = Some("app_preset_knob_skip");
+            }
+        }
+        if written == total && total > 0 {
             self.status = self.t("app_preset_applied").to_string();
+            if let Some(note) = knob_note {
+                self.status = format!("{} {}", self.status, self.t(note));
+            }
             self.toast = self.status.clone();
         } else if written > 0 {
             let line = self
@@ -843,7 +880,7 @@ impl App {
                     for (index, (name, num)) in PHYS_KEYS.iter().enumerate() {
                         let ui = &mut cols[index % 3];
                         ui.horizontal(|ui| {
-                            if self.knob_press_selectable(*num) {
+                            if self.key_slot_selectable(*num) {
                                 let selected = self.selected == Some(*num);
                                 if ui.selectable_label(selected, *name).clicked() {
                                     self.selected = Some(*num);
@@ -1275,7 +1312,7 @@ impl App {
             {
                 let dial = settings::ensure_object(&mut self.settings, "dial");
                 dial.insert("press_action".into(), json!("cycle"));
-                if matches!(self.selected, Some(14) | Some(17)) {
+                if self.selected.is_some_and(|num| num > T1_KEY_COUNT) {
                     self.selected = None;
                 }
                 self.save();

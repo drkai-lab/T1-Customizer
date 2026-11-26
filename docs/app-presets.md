@@ -66,6 +66,22 @@ page writes. The keyboard must be connected.
 ダイヤルの目安 / Dial suggestion: `[` / `]` でブラシサイズ
 ([ / ] : brush size)。
 
+ノブ回転モード / Knob rotation mode:
+
+このプリセットにはノブ回転の割り当ても含まれます。ノブが
+「キー割り当て」モード（`dial.press_action = "key"`）のときにプリセットを
+適用すると、KEY1〜KEY6 に加えて K1-L に左回転（`-`）、K1-R に右回転
+（`^`、日本語配列のキー。T1 のキー表では `=` の usage）を書き込むので、
+ノブを回すとキャンバスが回転します。「音量モード切り替え」のときは
+ノブ回転分は書き込まず、その旨を表示します。
+
+This preset also carries a knob rotation pair. When the knob is in key
+assignment mode (`dial.press_action = "key"`), applying the preset writes,
+in addition to KEY1–KEY6, Rotate Left (`-`) to K1-L and Rotate Right
+(`^` on a Japanese layout; the `=` usage in the T1 key table) to K1-R,
+so turning the knob rotates the canvas. In volume mode switch mode the
+knob pair is skipped and the app says so.
+
 メモ / Notes:
 
 - やり直し (Redo) のデフォルトは Ctrl+Y と Ctrl+Shift+Z の両方です。

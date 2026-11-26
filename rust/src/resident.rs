@@ -54,8 +54,8 @@ pub fn dial_modes(settings: &Settings) -> Vec<String> {
 pub enum PressAction {
     /// The press cycles the volume mode (the default, historic behaviour).
     Cycle,
-    /// The press is a plain key: K1-C / K2-C carry a written key assignment
-    /// and the monitor ignores the press entirely.
+    /// The knob is plain keys: K1-L/C/R and K2-L/C/R carry written key
+    /// assignments and the monitor ignores press and rotation entirely.
     Key,
 }
 
@@ -71,6 +71,13 @@ pub fn press_action(settings: &Settings) -> PressAction {
         Some("key") => PressAction::Key,
         _ => PressAction::Cycle,
     }
+}
+
+/// True while the whole knob (press and rotation) is in key assignment
+/// mode: every knob slot K1-L/C/R and K2-L/C/R carries a written key
+/// assignment, so the monitor must ignore the knob entirely.
+pub fn knob_is_key_mode(settings: &Settings) -> bool {
+    press_action(settings) == PressAction::Key
 }
 
 fn dial_step(settings: &Settings) -> f64 {
@@ -201,6 +208,12 @@ fn monitor_loop() {
                 continue;
             }
             if event.etype == EV_REL && rotate_codes.contains(&event.code) && event.value != 0 {
+                if knob_is_key_mode(&settings) {
+                    // The rotation is a written key assignment
+                    // (K1-L / K1-R / K2-L / K2-R); it must not change
+                    // the volume.
+                    continue;
+                }
                 let step = dial_step(&settings);
                 let direction = if event.value > 0 { step } else { -step };
                 match modes.get(mode_idx).map(String::as_str).unwrap_or("mic") {
@@ -463,5 +476,15 @@ mod tests {
     #[test]
     fn press_action_key_only_for_key() {
         assert_eq!(press_action(&settings_with(Some("key"))), PressAction::Key);
+    }
+
+    #[test]
+    fn knob_key_mode_covers_press_and_rotation() {
+        // The rotation guard in the monitor loop uses the same decision
+        // as the press guard: key mode means the resident ignores both.
+        assert!(!knob_is_key_mode(&settings_with(None)));
+        assert!(!knob_is_key_mode(&settings_with(Some("cycle"))));
+        assert!(!knob_is_key_mode(&settings_with(Some("bogus"))));
+        assert!(knob_is_key_mode(&settings_with(Some("key"))));
     }
 }

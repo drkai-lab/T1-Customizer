@@ -48,8 +48,18 @@ pub struct PresetKey {
     pub usage: u8,
 }
 
+/// A knob-rotation pair for a preset: what turning the knob left and
+/// right should send. Written to K1-L / K1-R, and only while the knob is
+/// in key assignment mode (`dial.press_action == "key"`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KnobPreset {
+    pub left: PresetKey,
+    pub right: PresetKey,
+}
+
 /// A whole app preset: six keys for KEY1..KEY6 plus a hint for what the
-/// dial usually does in that app (the dial itself is not written).
+/// dial usually does in that app. Most presets do not write the dial;
+/// `knob` is set only where the app has a natural rotate-left/right pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AppPreset {
     pub id: &'static str,
@@ -57,6 +67,7 @@ pub struct AppPreset {
     pub keys: [PresetKey; 6],
     pub dial_en: &'static str,
     pub dial_ja: &'static str,
+    pub knob: Option<KnobPreset>,
 }
 
 const fn key(action_en: &'static str, action_ja: &'static str, mods: u8, label: &str) -> PresetKey {
@@ -88,6 +99,8 @@ pub const APP_PRESETS: [AppPreset; 4] = [
         ],
         dial_en: "= / - : timeline zoom",
         dial_ja: "= / -：タイムラインのズーム",
+
+        knob: None,
     },
     AppPreset {
         id: "illustrator",
@@ -102,6 +115,8 @@ pub const APP_PRESETS: [AppPreset; 4] = [
         ],
         dial_en: "Ctrl+= / Ctrl+- : zoom",
         dial_ja: "Ctrl+= / Ctrl+-：ズーム",
+
+        knob: None,
     },
     AppPreset {
         id: "photoshop",
@@ -116,6 +131,7 @@ pub const APP_PRESETS: [AppPreset; 4] = [
         ],
         dial_en: "[ / ] : brush size",
         dial_ja: "[ / ]：ブラシサイズ",
+        knob: None,
     },
     AppPreset {
         id: "clipstudio",
@@ -130,6 +146,13 @@ pub const APP_PRESETS: [AppPreset; 4] = [
         ],
         dial_en: "[ / ] : brush size",
         dial_ja: "[ / ]：ブラシサイズ",
+        knob: Some(KnobPreset {
+            // CLIP STUDIO PAINT rotates the canvas with the View menu's
+            // Rotate Left ("-" key) and Rotate Right ("^" on a Japanese
+            // layout, which is the "=" usage on the T1's key table).
+            left: key("Rotate Left", "左回転（表示）", 0, "-"),
+            right: key("Rotate Right", "右回転（表示）", 0, "="),
+        }),
     },
 ];
 
@@ -221,5 +244,26 @@ mod tests {
         assert_eq!(description(&clipstudio.keys[0]), "P");
         assert_eq!(description(&clipstudio.keys[3]), "Ctrl+Y");
         assert_eq!(description(&clipstudio.keys[4]), "Ctrl+Z");
+    }
+
+    #[test]
+    fn only_clipstudio_has_a_knob_rotation_pair() {
+        for preset in &APP_PRESETS {
+            if preset.id != "clipstudio" {
+                assert!(
+                    preset.knob.is_none(),
+                    "{} must not write the knob",
+                    preset.id
+                );
+            }
+        }
+        let knob = preset("clipstudio").unwrap().knob.unwrap();
+        assert_eq!(knob.left.mods, 0);
+        assert_eq!(knob.right.mods, 0);
+        assert_eq!(label_for_usage(knob.left.usage), Some("-"));
+        assert_eq!(label_for_usage(knob.right.usage), Some("="));
+        assert_eq!(description(&knob.left), "-");
+        assert_eq!(description(&knob.right), "=");
+        assert!(!knob.left.action_ja.is_empty() && !knob.right.action_ja.is_empty());
     }
 }

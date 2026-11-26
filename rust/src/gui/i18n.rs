@@ -27,9 +27,23 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
         }
         "app_preset_partial" => {
             if ja {
-                "プリセットの一部だけ書き込みました（{ok}/6）"
+                "プリセットの一部だけ書き込みました（{ok}件）"
             } else {
-                "Preset partially written ({ok}/6)"
+                "Preset partially written ({ok} items)"
+            }
+        }
+        "app_preset_knob" => {
+            if ja {
+                "ノブ回転（左回転／右回転）も書き込みました"
+            } else {
+                "Knob rotation written too"
+            }
+        }
+        "app_preset_knob_skip" => {
+            if ja {
+                "ノブ回転は「キー割り当て」モードのときだけ書き込めます"
+            } else {
+                "Knob rotation needs key assignment mode"
             }
         }
         "connected" => {
@@ -504,9 +518,9 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
         }
         "dial_press_note" => {
             if ja {
-                "キー割り当てでは押し込みでモードは切り替わりません。キー画面で K1-C / K2-C を選んで書き込みます"
+                "キー割り当てでは、押し込み／左回し／右回しの3つをキー画面で割り当てられます。この間ノブはモード切替も音量変更もしません"
             } else {
-                "In key assignment mode the press does not switch modes. Select K1-C / K2-C on the Keys page to write a shortcut."
+                "In key assignment mode, press / rotate left / rotate right can all be assigned on the Keys page. The knob does not switch modes or change the volume."
             }
         }
         "reconnect" => {
