@@ -232,9 +232,7 @@ impl ChordPump {
     fn pump(&mut self, max_timeout: f64) -> Vec<input::InputEvent> {
         let timeout = match self.engine.next_deadline() {
             Some(deadline) => {
-                let wait =
-                    (deadline.saturating_sub(self.now()) as f64 / 1000.0).clamp(0.0, max_timeout);
-                wait
+                (deadline.saturating_sub(self.now()) as f64 / 1000.0).clamp(0.0, max_timeout)
             }
             None => max_timeout,
         };

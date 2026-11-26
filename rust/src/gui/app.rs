@@ -659,15 +659,13 @@ impl App {
                     mods: *mods,
                     usage: *usage,
                 })
-                .or_else(|| {
-                    if lone != 0 {
-                        Some(pair_chord::Combo {
-                            mods: lone,
-                            usage: 0,
-                        })
-                    } else {
-                        None
-                    }
+                .or(if lone != 0 {
+                    Some(pair_chord::Combo {
+                        mods: lone,
+                        usage: 0,
+                    })
+                } else {
+                    None
                 });
             match combo {
                 Some(combo) => self.assign_pair(pair, combo),
