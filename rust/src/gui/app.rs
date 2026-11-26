@@ -14,6 +14,7 @@ use crate::edition;
 use crate::gui::fonts;
 use crate::gui::i18n::{self, tr};
 use crate::keys::{self, AppendStatus, MODIFIERS, PHYS_KEYS, T1_KEY_COUNT, USAGE_KEYS};
+use crate::pair_chord;
 use crate::paths;
 use crate::resident;
 use crate::settings::{self, Settings};
@@ -123,6 +124,7 @@ struct App {
     groups: Vec<(u8, u8)>,
     combo_name: String,
     combo_sel: Option<usize>,
+    pair_sel: Option<usize>,
     learn: Option<Learn>,
     tray_note: bool,
     allow_close: bool,
@@ -189,6 +191,7 @@ impl App {
             groups: Vec::new(),
             combo_name: String::new(),
             combo_sel: None,
+            pair_sel: None,
             learn: None,
             tray_note: std::env::var_os("T1_SHOT_DIR").is_some()
                 || std::env::var_os("T1_SHOT_TRAY").is_some(),
@@ -316,12 +319,18 @@ impl App {
             self.toast = self.t("pick_function").to_string();
             return;
         };
+        let (label, usage) = USAGE_KEYS[index];
+        if let Some(pair) = self.pair_sel {
+            // A pair is selected: the write assigns the pair in
+            // settings only; nothing is burned for the pair itself.
+            self.assign_pair(pair, pair_chord::Combo { mods: 0, usage });
+            return;
+        }
         if !self.require_key() {
             return;
         }
-        let (label, usage) = USAGE_KEYS[index];
         let key = self.selected.unwrap();
-        let ok = self.device.write_key(key, self.layer, &[(0, usage)], 0);
+        let ok = self.burn_key(key, &[(0, usage)], 0);
         self.finish_key_write(
             key,
             label,
@@ -345,7 +354,212 @@ impl App {
             });
         });
         ui.add_space(4.0);
+        ui.group(|ui| {
+            ui.label(self.t("chords_mode_label"));
+            let on = pair_chord::chords_enabled(&self.settings);
+            ui.horizontal(|ui| {
+                if ui.selectable_label(on, self.t("chords_on")).clicked() && !on {
+                    self.set_chords_enabled(true);
+                }
+                if ui.selectable_label(!on, self.t("chords_off")).clicked() && on {
+                    self.set_chords_enabled(false);
+                }
+            });
+            ui.label(self.t("chords_note"));
+            if on {
+                let cfg = pair_chord::PairChordConfig::from_settings(&self.settings);
+                for (index, (a, b)) in pair_chord::PAIRS.iter().enumerate() {
+                    let desc = cfg
+                        .pair_combo(*a, *b)
+                        .map(|c| keys::describe_mod_usage(c.mods, c.usage))
+                        .unwrap_or_else(|| "-".to_string());
+                    let caption = format!("KEY{a}+KEY{b}  {desc}");
+                    if ui
+                        .selectable_label(self.pair_sel == Some(index), caption)
+                        .clicked()
+                    {
+                        self.pair_sel = if self.pair_sel == Some(index) {
+                            None
+                        } else {
+                            Some(index)
+                        };
+                    }
+                }
+                if self.pair_sel.is_some() {
+                    ui.label(self.t("chords_assign_hint"));
+                }
+            }
+        });
+        ui.add_space(4.0);
         self.page_list(ui, USAGE_KEYS.iter().map(|(n, _)| *n).collect(), true);
+    }
+
+    fn pair_label(index: usize) -> String {
+        let (a, b) = pair_chord::PAIRS[index];
+        format!("KEY{a}+KEY{b}")
+    }
+
+    /// Assign a combo to the selected pair (settings only), then burn
+    /// sentinels for both keys whose single is already known. A key
+    /// without a stored single is named in the toast: assigning its
+    /// single first is what burns its sentinel.
+    fn assign_pair(&mut self, index: usize, combo: pair_chord::Combo) {
+        let (a, b) = pair_chord::PAIRS[index];
+        if combo.is_empty() {
+            self.toast = self.t("mod_need_combo").to_string();
+            return;
+        }
+        pair_chord::set_pair(&mut self.settings, a, b, Some(combo));
+        self.save();
+        let cfg = pair_chord::PairChordConfig::from_settings(&self.settings);
+        let mut missing = Vec::new();
+        let mut pending = false;
+        for key in [a, b] {
+            match cfg.single(key) {
+                Some(_) => {
+                    if self.device.is_open() {
+                        self.burn_sentinel(key);
+                    } else {
+                        pending = true;
+                    }
+                }
+                None => missing.push(key),
+            }
+        }
+        if !missing.is_empty() {
+            let names = missing
+                .iter()
+                .map(|k| format!("KEY{k}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.toast = self.t("chords_single_first").replace("{keys}", &names);
+        } else if pending {
+            self.toast = self.t("chords_burn_pending").to_string();
+        } else {
+            let desc = keys::describe_mod_usage(combo.mods, combo.usage);
+            let name = pair_chord::pair_name(a, b).unwrap_or_default();
+            self.toast = self
+                .t("chords_pair_saved")
+                .replace("{pair}", &name)
+                .replace("{desc}", &desc);
+        }
+    }
+
+    fn burn_sentinel(&mut self, key: u8) {
+        let sentinel = pair_chord::sentinel_combo(key);
+        self.device.write_key(
+            key,
+            self.layer,
+            &[(sentinel.mods, sentinel.usage)],
+            sentinel.mods,
+        );
+    }
+
+    /// The master pair-mode toggle. Turning on burns sentinels (current
+    /// preset only) for participating keys whose single is stored;
+    /// turning off burns the stored singles back. Without a connected
+    /// device the burn cannot happen and the toast says so plainly.
+    fn set_chords_enabled(&mut self, on: bool) {
+        pair_chord::set_enabled(&mut self.settings, on);
+        self.save();
+        self.pair_sel = None;
+        let cfg = pair_chord::PairChordConfig::from_settings(&self.settings);
+        if on {
+            let mut missing = Vec::new();
+            let mut pending = false;
+            for key in 1..=6u8 {
+                if !cfg.participates(key) {
+                    continue;
+                }
+                match cfg.single(key) {
+                    Some(_) => {
+                        if self.device.is_open() {
+                            self.burn_sentinel(key);
+                        } else {
+                            pending = true;
+                        }
+                    }
+                    None => missing.push(key),
+                }
+            }
+            if !missing.is_empty() {
+                let names = missing
+                    .iter()
+                    .map(|k| format!("KEY{k}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.toast = self.t("chords_single_first").replace("{keys}", &names);
+            } else if pending {
+                self.toast = self.t("chords_burn_pending").to_string();
+            } else {
+                self.toast = self.t("chords_on_done").to_string();
+            }
+        } else {
+            let mut pending = false;
+            for key in 1..=6u8 {
+                if let Some(single) = cfg.single(key) {
+                    if self.device.is_open() {
+                        self.burn_raw_single(key, single);
+                    } else {
+                        pending = true;
+                    }
+                }
+            }
+            self.toast = if pending {
+                self.t("chords_restore_pending").to_string()
+            } else {
+                self.t("chords_off_done").to_string()
+            };
+        }
+    }
+
+    fn burn_raw_single(&mut self, key: u8, single: pair_chord::Combo) {
+        if single.usage != 0 {
+            self.device
+                .write_key(key, self.layer, &[(single.mods, single.usage)], 0);
+        } else {
+            self.device.write_key(key, self.layer, &[], single.mods);
+        }
+    }
+
+    /// Write a key combo, honouring pair mode. While pair mode is on, a
+    /// KEY1..KEY6 write stores the real combo in `chords.singles` and
+    /// burns the key's sentinel instead when the key takes part in a
+    /// configured pair (the real combo when it does not). A multi-group
+    /// combo cannot be a pair-mode single and is refused.
+    fn burn_key(&mut self, key: u8, groups: &[(u8, u8)], lone: u8) -> bool {
+        if !pair_chord::chords_enabled(&self.settings) || !(1..=6).contains(&key) {
+            return self.device.write_key(key, self.layer, groups, lone);
+        }
+        let single = match (groups, lone) {
+            ([(mods, usage)], _) => Some(pair_chord::Combo {
+                mods: *mods,
+                usage: *usage,
+            }),
+            ([], 0) => None,
+            ([], mods) => Some(pair_chord::Combo { mods, usage: 0 }),
+            _ => {
+                self.toast = self.t("chords_single_only").to_string();
+                return false;
+            }
+        };
+        let cfg = pair_chord::PairChordConfig::from_settings(&self.settings);
+        let ok = if cfg.participates(key) {
+            let sentinel = pair_chord::sentinel_combo(key);
+            self.device.write_key(
+                key,
+                self.layer,
+                &[(sentinel.mods, sentinel.usage)],
+                sentinel.mods,
+            )
+        } else {
+            self.device.write_key(key, self.layer, groups, lone)
+        };
+        if ok {
+            pair_chord::set_single(&mut self.settings, key, single);
+            self.save();
+        }
+        ok
     }
 
     fn apply_app_preset(&mut self, preset: &app_presets::AppPreset) {
@@ -357,7 +571,7 @@ impl App {
         for (index, preset_key) in preset.keys.iter().enumerate() {
             let keynum = (index + 1) as u8;
             let combo = [(preset_key.mods, preset_key.usage)];
-            if !self.device.write_key(keynum, self.layer, &combo, 0) {
+            if !self.burn_key(keynum, &combo, 0) {
                 continue;
             }
             written += 1;
@@ -434,18 +648,43 @@ impl App {
     }
 
     fn write_modifier(&mut self) {
+        let usage = keys::usage_for_label(&self.base_label);
+        let (keys, lone) = keys::editor_key_combo(&self.groups, self.staged_mods(), usage);
+        if let Some(pair) = self.pair_sel {
+            // A pair takes a single (mods, usage): the first staged
+            // group, or the modifiers alone.
+            let combo = keys
+                .first()
+                .map(|(mods, usage)| pair_chord::Combo {
+                    mods: *mods,
+                    usage: *usage,
+                })
+                .or_else(|| {
+                    if lone != 0 {
+                        Some(pair_chord::Combo {
+                            mods: lone,
+                            usage: 0,
+                        })
+                    } else {
+                        None
+                    }
+                });
+            match combo {
+                Some(combo) => self.assign_pair(pair, combo),
+                None => self.toast = self.t("mod_need_combo").to_string(),
+            }
+            return;
+        }
         if !self.require_key() {
             return;
         }
-        let usage = keys::usage_for_label(&self.base_label);
-        let (keys, lone) = keys::editor_key_combo(&self.groups, self.staged_mods(), usage);
         if keys.is_empty() && lone == 0 {
             self.toast = self.t("mod_need_combo").to_string();
             return;
         }
         let key = self.selected.unwrap();
         let desc = keys::describe_key_combo(&keys, lone);
-        let ok = self.device.write_key(key, self.layer, &keys, lone);
+        let ok = self.burn_key(key, &keys, lone);
         self.finish_key_write(
             key,
             &desc,
@@ -458,6 +697,15 @@ impl App {
     }
 
     fn write_named(&mut self, table: &[(&str, &str)], media: bool) {
+        if pair_chord::chords_enabled(&self.settings)
+            && self.selected.is_some_and(|key| (1..=6).contains(&key))
+        {
+            // A media/mouse burn would replace the sentinel and break
+            // pair detection for that key (and fire immediately, which
+            // is exactly the mis-input pair mode exists to prevent).
+            self.toast = self.t("chords_keys_only").to_string();
+            return;
+        }
         let index = if media {
             self.media_sel
         } else {
@@ -504,7 +752,7 @@ impl App {
             return;
         }
         let key = self.selected.unwrap();
-        let ok = self.device.write_key(key, self.layer, &[], 0);
+        let ok = self.burn_key(key, &[], 0);
         let empty = self.t("assign_empty").to_string();
         self.finish_key_write(
             key,
@@ -562,10 +810,16 @@ impl App {
             self.toast = self.t("need_device").to_string();
             return;
         }
+        if pair_chord::chords_enabled(&self.settings)
+            && (1..=6).contains(&undo.key)
+            && !matches!(undo.snap.written, Written::Keys { .. })
+        {
+            self.toast = self.t("chords_keys_only").to_string();
+            return;
+        }
+        self.layer = undo.layer;
         let ok = match &undo.snap.written {
-            Written::Keys { keys, lone } => {
-                self.device.write_key(undo.key, undo.layer, keys, *lone)
-            }
+            Written::Keys { keys, lone } => self.burn_key(undo.key, keys, *lone),
             Written::Media(action) => self.device.write_media(undo.key, undo.layer, action),
             Written::Mouse(action) => self.device.write_mouse(undo.key, undo.layer, action),
         };
@@ -884,6 +1138,7 @@ impl App {
                                 let selected = self.selected == Some(*num);
                                 if ui.selectable_label(selected, *name).clicked() {
                                     self.selected = Some(*num);
+                                    self.pair_sel = None;
                                 }
                             } else {
                                 ui.add_enabled_ui(false, |ui| {
@@ -992,25 +1247,45 @@ impl App {
 
     fn write_offer(&self) -> (String, String, bool) {
         match self.page {
-            0 => match (self.selected, self.key_sel) {
-                (Some(key), Some(index)) => (
-                    i18n::write_button(&self.lang, &format!("KEY{key}"), USAGE_KEYS[index].0),
-                    String::new(),
-                    true,
-                ),
-                (None, _) => (
-                    self.t("download").to_string(),
-                    self.t("pick_first").to_string(),
-                    false,
-                ),
-                _ => (
-                    self.t("download").to_string(),
-                    self.t("pick_function").to_string(),
-                    false,
-                ),
-            },
+            0 => {
+                if let Some(pair) = self.pair_sel {
+                    return match self.key_sel {
+                        Some(index) => (
+                            i18n::write_button(
+                                &self.lang,
+                                &Self::pair_label(pair),
+                                USAGE_KEYS[index].0,
+                            ),
+                            String::new(),
+                            true,
+                        ),
+                        None => (
+                            self.t("download").to_string(),
+                            self.t("pick_function").to_string(),
+                            false,
+                        ),
+                    };
+                }
+                match (self.selected, self.key_sel) {
+                    (Some(key), Some(index)) => (
+                        i18n::write_button(&self.lang, &format!("KEY{key}"), USAGE_KEYS[index].0),
+                        String::new(),
+                        true,
+                    ),
+                    (None, _) => (
+                        self.t("download").to_string(),
+                        self.t("pick_first").to_string(),
+                        false,
+                    ),
+                    _ => (
+                        self.t("download").to_string(),
+                        self.t("pick_function").to_string(),
+                        false,
+                    ),
+                }
+            }
             1 => {
-                if self.selected.is_none() {
+                if self.pair_sel.is_none() && self.selected.is_none() {
                     return (
                         self.t("download").to_string(),
                         self.t("pick_first").to_string(),
@@ -1027,12 +1302,12 @@ impl App {
                     );
                 }
                 let desc = keys::describe_key_combo(&keys, lone);
+                let target = match self.pair_sel {
+                    Some(pair) => Self::pair_label(pair),
+                    None => format!("KEY{}", self.selected.unwrap()),
+                };
                 (
-                    i18n::write_button(
-                        &self.lang,
-                        &format!("KEY{}", self.selected.unwrap()),
-                        &desc,
-                    ),
+                    i18n::write_button(&self.lang, &target, &desc),
                     String::new(),
                     true,
                 )

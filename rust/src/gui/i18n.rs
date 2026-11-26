@@ -46,6 +46,97 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
                 "Knob rotation needs key assignment mode"
             }
         }
+        "chords_mode_label" => {
+            if ja {
+                "キーペア押しモード"
+            } else {
+                "Key pair mode"
+            }
+        }
+        "chords_on" => {
+            if ja {
+                "オン"
+            } else {
+                "On"
+            }
+        }
+        "chords_off" => {
+            if ja {
+                "オフ"
+            } else {
+                "Off"
+            }
+        }
+        "chords_note" => {
+            if ja {
+                "オンの間、ペア対象のキーには目印（Ctrl+Shift+F1〜F6）だけを焼き、同時押しの判定は常駐アプリが行います。単押しは最大で判定間隔（既定100ms）だけ遅れます。目印は現在のプリセットにだけ焼かれます。"
+            } else {
+                "While on, paired keys carry only a sentinel (Ctrl+Shift+F1-F6) and the resident app decides pairs. A single press can be delayed by up to the decision interval (default 100 ms). Sentinels are burned on the current preset only."
+            }
+        }
+        "chords_assign_hint" => {
+            if ja {
+                "ペアを選んだ状態で、キー一覧や修飾ページで組み合わせを作って書き込むと、そのペアへの割り当てになります。"
+            } else {
+                "With a pair selected, building a combo on the Keys or Modifiers page and writing it assigns that pair."
+            }
+        }
+        "chords_single_first" => {
+            if ja {
+                "先に単押しを割り当ててください: {keys}"
+            } else {
+                "Assign these single keys first: {keys}"
+            }
+        }
+        "chords_burn_pending" => {
+            if ja {
+                "本体が未接続のため、目印の書き込みは保留中です。接続してからペアを割り当て直してください。"
+            } else {
+                "Device not connected: sentinel burning is pending. Reconnect and assign the pair again."
+            }
+        }
+        "chords_restore_pending" => {
+            if ja {
+                "本体が未接続のため、単押しの書き戻しができていません。キーは目印のままです。接続してからもう一度オフにしてください。"
+            } else {
+                "Device not connected: singles could not be written back. The keys still carry sentinels. Reconnect and switch off again."
+            }
+        }
+        "chords_pair_saved" => {
+            if ja {
+                "ペア {pair} に {desc} を割り当てました"
+            } else {
+                "Assigned {desc} to pair {pair}"
+            }
+        }
+        "chords_single_only" => {
+            if ja {
+                "ペア押しモード中、KEY1〜KEY6 に書けるのは単一の組み合わせだけです"
+            } else {
+                "In pair mode, KEY1-KEY6 accept a single combo only"
+            }
+        }
+        "chords_keys_only" => {
+            if ja {
+                "ペア押しモード中、KEY1〜KEY6 にはメディア／マウスを書けません"
+            } else {
+                "In pair mode, KEY1-KEY6 cannot take media/mouse actions"
+            }
+        }
+        "chords_on_done" => {
+            if ja {
+                "キーペア押しモードをオンにしました"
+            } else {
+                "Key pair mode is on"
+            }
+        }
+        "chords_off_done" => {
+            if ja {
+                "キーペア押しモードをオフにし、単押しを書き戻しました"
+            } else {
+                "Key pair mode is off; singles written back"
+            }
+        }
         "connected" => {
             if ja {
                 "接続中"

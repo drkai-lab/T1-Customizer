@@ -19,6 +19,27 @@ fn window(key: &str) -> Option<&'static str> {
         "app_preset_partial" => "프리셋 일부만 썼습니다 ({ok}개)",
         "app_preset_knob" => "노브 회전도 썼습니다",
         "app_preset_knob_skip" => "노브 회전은 키 할당 모드일 때만 쓸 수 있습니다",
+        "chords_mode_label" => "키 페어 누르기 모드",
+        "chords_on" => "켬",
+        "chords_off" => "끔",
+        "chords_note" => {
+            "켜져 있는 동안 페어 대상 키에는 표식(Ctrl+Shift+F1~F6)만 기록하고, 동시 누름 판정은 상주 앱이 합니다. 단일 누름은 판정 간격(기본 100ms)만큼 늦어질 수 있습니다. 표식은 현재 프리셋에만 기록됩니다."
+        }
+        "chords_assign_hint" => {
+            "페어를 선택한 상태에서 키 목록이나 수식 페이지에서 조합을 만들어 쓰면 그 페어에 할당됩니다."
+        }
+        "chords_single_first" => "먼저 단일 키를 할당하세요: {keys}",
+        "chords_burn_pending" => {
+            "본체가 연결되지 않아 표식 기록이 보류 중입니다. 연결한 뒤 페어를 다시 할당하세요."
+        }
+        "chords_restore_pending" => {
+            "본체가 연결되지 않아 단일 키를 되돌리지 못했습니다. 키는 표식 그대로입니다. 연결한 뒤 다시 끄세요."
+        }
+        "chords_pair_saved" => "페어 {pair}에 {desc}를 할당했습니다",
+        "chords_single_only" => "페어 모드에서는 KEY1~KEY6에 단일 조합만 쓸 수 있습니다",
+        "chords_keys_only" => "페어 모드에서는 KEY1~KEY6에 미디어/마우스를 쓸 수 없습니다",
+        "chords_on_done" => "키 페어 누르기 모드를 켰습니다",
+        "chords_off_done" => "키 페어 누르기 모드를 끄고 단일 키를 되돌렸습니다",
         "connected" => "연결됨",
         "disconnected" => "연결 안 됨",
         "download_ok" => "쓰기 성공",

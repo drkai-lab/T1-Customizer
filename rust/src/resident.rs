@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::input::{self, InputSource};
+use crate::pair_chord;
 use crate::settings::{self, Settings};
 use crate::state;
 use crate::tables::{self, EV_KEY, EV_REL};
@@ -80,6 +81,174 @@ pub fn knob_is_key_mode(settings: &Settings) -> bool {
     press_action(settings) == PressAction::Key
 }
 
+/// Linux pair-chord path: the grabbed T1, the decide engine, and the
+/// bookkeeping that keeps the virtual device's modifier state honest.
+/// Every non-sentinel event is forwarded through the virtual device
+/// unchanged (knob rotation, media keys, everything) and also surfaced
+/// to the monitor loop in normalised form, so the dial keeps working
+/// while pair mode is on.
+#[cfg(target_os = "linux")]
+struct ChordPump {
+    grabbed: input::GrabbedT1,
+    engine: pair_chord::PairChordEngine,
+    start: Instant,
+    /// Physical modifier state in the T1's own event stream.
+    lctrl: bool,
+    lshift: bool,
+    /// Modifier state currently held on the virtual device.
+    virt_lctrl: bool,
+    virt_lshift: bool,
+    /// Sentinel F-keys currently down, by key number 1..=6. An F-key up
+    /// is a sentinel release while its mark is set, even when the
+    /// modifier ups arrived first.
+    sentinel_down: [bool; 7],
+    /// The forwarded sentinel Ctrl/Shift were already cancelled with
+    /// virtual ups ahead of the first injection.
+    mods_released: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl ChordPump {
+    fn open(cfg: pair_chord::PairChordConfig) -> Option<Self> {
+        let grabbed = input::GrabbedT1::open()?;
+        state::log_line(&format!(
+            "pair chords: monitor attached to {}",
+            grabbed.describe()
+        ));
+        Some(Self {
+            grabbed,
+            engine: pair_chord::PairChordEngine::new(cfg),
+            start: Instant::now(),
+            lctrl: false,
+            lshift: false,
+            virt_lctrl: false,
+            virt_lshift: false,
+            sentinel_down: [false; 7],
+            mods_released: false,
+        })
+    }
+
+    fn now(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+
+    fn shutdown(&mut self) {
+        let actions = self.engine.shutdown();
+        self.execute(actions);
+    }
+
+    fn execute(&mut self, actions: Vec<pair_chord::Action>) {
+        use pair_chord::Action;
+        for action in actions {
+            match action {
+                Action::InjectDown(combo) => {
+                    if !self.mods_released && (self.virt_lctrl || self.virt_lshift) {
+                        // The sentinel's own Ctrl/Shift were forwarded
+                        // when the key went down; cancel them so the
+                        // injected combo is seen on its own.
+                        if self.virt_lctrl {
+                            self.grabbed.emit_key(29, false);
+                            self.virt_lctrl = false;
+                        }
+                        if self.virt_lshift {
+                            self.grabbed.emit_key(42, false);
+                            self.virt_lshift = false;
+                        }
+                        self.grabbed.sync();
+                        self.mods_released = true;
+                    }
+                    for code in pair_chord::evdev_codes(combo) {
+                        self.grabbed.emit_key(code, true);
+                    }
+                    self.grabbed.sync();
+                }
+                Action::InjectUp(combo) => {
+                    for code in pair_chord::evdev_codes(combo).iter().rev() {
+                        self.grabbed.emit_key(*code, false);
+                    }
+                    self.grabbed.sync();
+                }
+            }
+        }
+        if self.engine.is_idle() && !self.lctrl && !self.lshift {
+            self.mods_released = false;
+        }
+    }
+
+    fn handle_raw(&mut self, ev: input::RawKernelEvent, out: &mut Vec<input::InputEvent>) {
+        const KERNEL_EV_KEY: u16 = 1;
+        if ev.etype == KERNEL_EV_KEY {
+            match ev.code {
+                29 => self.lctrl = ev.value != 0,
+                42 => self.lshift = ev.value != 0,
+                _ => {}
+            }
+            if ev.value == 0 && self.mods_released && matches!(ev.code, 29 | 42) {
+                // This modifier up was already delivered virtually ahead
+                // of an injection; do not deliver it twice.
+                if !self.lctrl && !self.lshift && self.engine.is_idle() {
+                    self.mods_released = false;
+                }
+                return;
+            }
+            if (59..=64).contains(&ev.code) {
+                let keynum = (ev.code - 58) as usize;
+                match ev.value {
+                    1 if self.sentinel_down[keynum] => return, // duplicate
+                    1 if self.lctrl && self.lshift => {
+                        self.sentinel_down[keynum] = true;
+                        let actions = self.engine.key_down(keynum as u8, self.now());
+                        self.execute(actions);
+                        return;
+                    }
+                    0 if self.sentinel_down[keynum] => {
+                        self.sentinel_down[keynum] = false;
+                        let actions = self.engine.key_up(keynum as u8, self.now());
+                        self.execute(actions);
+                        return;
+                    }
+                    2 if self.sentinel_down[keynum] => return, // repeat
+                    _ => {}
+                }
+            }
+        }
+        self.grabbed.emit(ev.etype, ev.code, ev.value);
+        match ev.code {
+            29 if ev.etype == KERNEL_EV_KEY => self.virt_lctrl = ev.value != 0,
+            42 if ev.etype == KERNEL_EV_KEY => self.virt_lshift = ev.value != 0,
+            _ => {}
+        }
+        if let Some(etype) = tables::normalize_kernel_type(ev.etype) {
+            out.push(input::InputEvent {
+                etype,
+                code: ev.code,
+                value: ev.value,
+            });
+        }
+    }
+
+    /// Poll the grabbed devices, run the engine, and return the events
+    /// the monitor loop should still see (everything but sentinels).
+    fn pump(&mut self, max_timeout: f64) -> Vec<input::InputEvent> {
+        let timeout = match self.engine.next_deadline() {
+            Some(deadline) => {
+                let wait =
+                    (deadline.saturating_sub(self.now()) as f64 / 1000.0).clamp(0.0, max_timeout);
+                wait
+            }
+            None => max_timeout,
+        };
+        let raw = self.grabbed.poll(timeout);
+        let mut out = Vec::new();
+        for ev in raw {
+            self.handle_raw(ev, &mut out);
+        }
+        let actions = self.engine.tick(self.now());
+        self.execute(actions);
+        out
+    }
+}
+
 fn dial_step(settings: &Settings) -> f64 {
     settings
         .get("dial")
@@ -117,13 +286,22 @@ fn monitor_loop() {
     let mut push_code: Option<u16> = None;
     let mut source: Option<Box<dyn InputSource>> = None;
     let mut warned_empty = false;
+    let mut chord_cfg = pair_chord::PairChordConfig::from_settings(&settings);
+    #[cfg(target_os = "linux")]
+    let mut chord_pump: Option<ChordPump> = None;
+    #[cfg(target_os = "macos")]
+    let mut chord_mac_warned = false;
 
     let reload = |settings: &mut Settings,
                   modes: &mut Vec<String>,
                   mode_idx: &mut usize,
                   rotate_codes: &mut std::collections::HashSet<u16>,
-                  push_code: &mut Option<u16>| {
+                  push_code: &mut Option<u16>,
+                  chord_cfg: &mut pair_chord::PairChordConfig| {
         *settings = settings::load_settings();
+        *chord_cfg = pair_chord::PairChordConfig::from_settings(settings);
+        #[cfg(windows)]
+        input::pair_chord_set_config(chord_cfg.clone());
         *modes = dial_modes(settings);
         if *mode_idx >= modes.len() {
             *mode_idx = 0;
@@ -154,10 +332,44 @@ fn monitor_loop() {
         &mut mode_idx,
         &mut rotate_codes,
         &mut push_code,
+        &mut chord_cfg,
     );
 
     loop {
-        if source.is_none() {
+        // Pair chords (Linux): while enabled, the grabbed pump replaces
+        // the listen-only source. Toggling off shuts the engine down
+        // cleanly and releases the grab.
+        #[cfg(target_os = "linux")]
+        {
+            if chord_cfg.enabled && chord_pump.is_none() {
+                chord_pump = ChordPump::open(chord_cfg.clone());
+                if chord_pump.is_some() {
+                    source = None;
+                }
+            }
+            if !chord_cfg.enabled && chord_pump.is_some() {
+                if let Some(mut pump) = chord_pump.take() {
+                    pump.shutdown();
+                }
+                source = None;
+            }
+        }
+        #[cfg(target_os = "macos")]
+        if chord_cfg.enabled && !chord_mac_warned {
+            chord_mac_warned = true;
+            state::log_line("pair chords are not supported on macOS yet; ignoring the toggle");
+        }
+        let pump_active = {
+            #[cfg(target_os = "linux")]
+            {
+                chord_pump.is_some()
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                false
+            }
+        };
+        if !pump_active && source.is_none() {
             source = input::open_input_source();
             if source.is_none() {
                 if !warned_empty {
@@ -180,12 +392,37 @@ fn monitor_loop() {
                 &mut mode_idx,
                 &mut rotate_codes,
                 &mut push_code,
+                &mut chord_cfg,
             );
+            // A config swap under a running pump: restart it so the new
+            // pairs/singles apply (shutdown releases injected keys).
+            #[cfg(target_os = "linux")]
+            if let Some(mut pump) = chord_pump.take() {
+                pump.shutdown();
+                if chord_cfg.enabled {
+                    chord_pump = ChordPump::open(chord_cfg.clone());
+                }
+            }
         }
-        let Some(src) = source.as_mut() else {
-            continue;
+        let events = {
+            #[cfg(target_os = "linux")]
+            {
+                match chord_pump.as_mut() {
+                    Some(pump) => pump.pump(0.25),
+                    None => match source.as_mut() {
+                        Some(src) => src.wait_events(0.25),
+                        None => continue,
+                    },
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let Some(src) = source.as_mut() else {
+                    continue;
+                };
+                src.wait_events(0.25)
+            }
         };
-        let events = src.wait_events(0.25);
         for event in events {
             if event.etype == EV_KEY && push_code == Some(event.code) {
                 if press_action(&settings) == PressAction::Key {

@@ -25,6 +25,9 @@ English | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [한국�
   selected on the key panel and written like any other key
 - CLIP STUDIO PAINT preset knob rotation: in key mode, applying the
   preset also writes canvas Rotate Left / Right to K1-L / K1-R
+- Key pair mode: assign combos to two-key presses (KEY1+2, 4+1, …) with
+  mis-input prevention; singles may be delayed up to the decision
+  interval (see `docs/chord-keys.md`)
 - `settings.json` is portable across Linux / Windows / macOS (all codes
   stored as Linux evdev codes). Settings written by the original app for
   these features load unchanged; settings for removed features are

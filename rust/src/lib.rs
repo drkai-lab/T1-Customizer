@@ -13,6 +13,7 @@ pub mod gui;
 pub mod hidparse;
 pub mod input;
 pub mod keys;
+pub mod pair_chord;
 pub mod paths;
 pub mod protocol;
 pub mod resident;
