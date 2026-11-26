@@ -4,7 +4,7 @@ Free configuration tool for the **T1 mini keyboard** — the
 [6 Keys 1 Knob RGB Programming Macro Gaming Keypad](https://ja.aliexpress.com/item/1005009812219099.html) (AliExpress,
 USB VID `1189` / PID `8890`).
 
-> Forked from T1-VREmoKey (えもかえる) by AppWizz Kai, version 2.2.4.
+> Forked from T1-VREmoKey (えもかえ) by AppWizz Kai, version 2.2.4.
 > This fork removes every VRChat-related feature and the activation
 > (license) gate of the original. It is free, and every feature is
 > available to everyone.

@@ -2,7 +2,7 @@
 
 **T1 迷你键盘**（[6 Keys 1 Knob RGB Programming Macro Gaming Keypad](https://ja.aliexpress.com/item/1005009812219099.html)，AliExpress，USB VID `1189` / PID `8890`）的免费配置工具。
 
-> Forked from T1-VREmoKey (えもかえる) by AppWizz Kai, version 2.2.4.
+> Forked from T1-VREmoKey (えもかえ) by AppWizz Kai, version 2.2.4.
 > 本分支删除了原应用的全部 VRChat 相关功能和激活（许可证）限制。免费，所有功能均可使用。
 
 [English](README.md) | [日本語](README.ja.md) | 简体中文 | [한국어](README.ko.md)
