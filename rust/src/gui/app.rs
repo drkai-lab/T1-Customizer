@@ -268,12 +268,27 @@ impl App {
         self.save();
     }
 
+    /// True when the knob press is a key assignment (`dial.press_action`).
+    fn press_is_key(&self) -> bool {
+        crate::resident::press_action(&self.settings) == crate::resident::PressAction::Key
+    }
+
+    /// Slots the user may write: KEY1..KEY6 always, plus the knob presses
+    /// K1-C (14) and K2-C (17) while the press is a key assignment. The
+    /// knob rotations stay read-only here: the resident listener owns them.
+    fn knob_press_selectable(&self, num: u8) -> bool {
+        num <= T1_KEY_COUNT || (self.press_is_key() && (num == 14 || num == 17))
+    }
+
     fn require_key(&mut self) -> bool {
         if self.selected.is_none() {
             self.toast = self.t("pick_first").to_string();
             return false;
         }
-        if self.selected.is_some_and(|key| key > T1_KEY_COUNT) {
+        if self
+            .selected
+            .is_some_and(|key| !self.knob_press_selectable(key))
+        {
             self.toast = self.t("gray_keys").to_string();
             return false;
         }
@@ -828,7 +843,7 @@ impl App {
                     for (index, (name, num)) in PHYS_KEYS.iter().enumerate() {
                         let ui = &mut cols[index % 3];
                         ui.horizontal(|ui| {
-                            if *num <= T1_KEY_COUNT {
+                            if self.knob_press_selectable(*num) {
                                 let selected = self.selected == Some(*num);
                                 if ui.selectable_label(selected, *name).clicked() {
                                     self.selected = Some(*num);
@@ -1246,6 +1261,39 @@ impl App {
 
     fn page_dial(&mut self, ui: &mut egui::Ui) {
         ui.label(i18n::dial_hint(&self.lang));
+        ui.separator();
+        ui.label(self.t("dial_press_label"));
+        let press = crate::resident::press_action(&self.settings);
+        ui.horizontal(|ui| {
+            if ui
+                .selectable_label(
+                    press == crate::resident::PressAction::Cycle,
+                    self.t("dial_press_cycle"),
+                )
+                .clicked()
+                && press != crate::resident::PressAction::Cycle
+            {
+                let dial = settings::ensure_object(&mut self.settings, "dial");
+                dial.insert("press_action".into(), json!("cycle"));
+                if matches!(self.selected, Some(14) | Some(17)) {
+                    self.selected = None;
+                }
+                self.save();
+            }
+            if ui
+                .selectable_label(
+                    press == crate::resident::PressAction::Key,
+                    self.t("dial_press_key"),
+                )
+                .clicked()
+                && press != crate::resident::PressAction::Key
+            {
+                let dial = settings::ensure_object(&mut self.settings, "dial");
+                dial.insert("press_action".into(), json!("key"));
+                self.save();
+            }
+        });
+        ui.label(self.t("dial_press_note"));
         ui.separator();
         let current = crate::resident::dial_modes(&self.settings);
         let mut modes = [

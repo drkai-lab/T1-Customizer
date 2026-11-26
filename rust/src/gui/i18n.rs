@@ -481,6 +481,34 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
                 "Headphone volume"
             }
         }
+        "dial_press_label" => {
+            if ja {
+                "ノブの押し込み"
+            } else {
+                "Knob press"
+            }
+        }
+        "dial_press_cycle" => {
+            if ja {
+                "音量モード切り替え"
+            } else {
+                "Volume mode switch"
+            }
+        }
+        "dial_press_key" => {
+            if ja {
+                "キー割り当て"
+            } else {
+                "Key assignment"
+            }
+        }
+        "dial_press_note" => {
+            if ja {
+                "キー割り当てでは押し込みでモードは切り替わりません。キー画面で K1-C / K2-C を選んで書き込みます"
+            } else {
+                "In key assignment mode the press does not switch modes. Select K1-C / K2-C on the Keys page to write a shortcut."
+            }
+        }
         "reconnect" => {
             if ja {
                 "再接続"

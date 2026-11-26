@@ -49,6 +49,30 @@ pub fn dial_modes(settings: &Settings) -> Vec<String> {
     modes
 }
 
+/// What a dial press does, from `dial.press_action` in settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PressAction {
+    /// The press cycles the volume mode (the default, historic behaviour).
+    Cycle,
+    /// The press is a plain key: K1-C / K2-C carry a written key assignment
+    /// and the monitor ignores the press entirely.
+    Key,
+}
+
+/// The configured press action. Anything but `"key"` means `Cycle`, so
+/// settings written before this option existed behave as before.
+pub fn press_action(settings: &Settings) -> PressAction {
+    match settings
+        .get("dial")
+        .and_then(|v| v.as_object())
+        .and_then(|d| d.get("press_action"))
+        .and_then(|v| v.as_str())
+    {
+        Some("key") => PressAction::Key,
+        _ => PressAction::Cycle,
+    }
+}
+
 fn dial_step(settings: &Settings) -> f64 {
     settings
         .get("dial")
@@ -157,6 +181,11 @@ fn monitor_loop() {
         let events = src.wait_events(0.25);
         for event in events {
             if event.etype == EV_KEY && push_code == Some(event.code) {
+                if press_action(&settings) == PressAction::Key {
+                    // The press is a written key assignment (K1-C / K2-C);
+                    // it must not cycle the volume mode.
+                    continue;
+                }
                 set_dial_held(event.value == 1);
                 if event.value == 1 && modes.len() > 1 {
                     mode_idx = (mode_idx + 1) % modes.len();
@@ -403,4 +432,36 @@ pub fn selftest(write: bool) -> i32 {
     device.close();
     println!("\nRESULT: {}", if failed { "FAIL" } else { "PASS" });
     if failed { 1 } else { 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn settings_with(value: Option<&str>) -> Settings {
+        let mut settings = Settings::new();
+        if let Some(value) = value {
+            settings.insert("dial".into(), json!({ "press_action": value }));
+        }
+        settings
+    }
+
+    #[test]
+    fn press_action_defaults_to_cycle() {
+        assert_eq!(press_action(&settings_with(None)), PressAction::Cycle);
+        assert_eq!(
+            press_action(&settings_with(Some("cycle"))),
+            PressAction::Cycle
+        );
+        assert_eq!(
+            press_action(&settings_with(Some("bogus"))),
+            PressAction::Cycle
+        );
+    }
+
+    #[test]
+    fn press_action_key_only_for_key() {
+        assert_eq!(press_action(&settings_with(Some("key"))), PressAction::Key);
+    }
 }

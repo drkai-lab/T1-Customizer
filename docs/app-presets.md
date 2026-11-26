@@ -52,6 +52,32 @@ page writes. The keyboard must be connected.
 ダイヤルの目安 / Dial suggestion: `[` / `]` でブラシサイズ
 ([ / ] : brush size)。
 
+## CLIP STUDIO PAINT
+
+| Key | 動作 (JA) | Action (EN) | Windows | macOS |
+| --- | --- | --- | --- | --- |
+| KEY1 | ペン | Pen Tool | P | P |
+| KEY2 | 筆 | Brush Tool | B | B |
+| KEY3 | 消しゴム | Eraser Tool | E | E |
+| KEY4 | やり直し | Redo | Ctrl+Y | Cmd+Y |
+| KEY5 | 取り消し | Undo | Ctrl+Z | Cmd+Z |
+| KEY6 | 保存 | Save | Ctrl+S | Cmd+S |
+
+ダイヤルの目安 / Dial suggestion: `[` / `]` でブラシサイズ
+([ / ] : brush size)。
+
+メモ / Notes:
+
+- やり直し (Redo) のデフォルトは Ctrl+Y と Ctrl+Shift+Z の両方です。
+  プリセットでは Ctrl+Y を使います。
+  Redo defaults to both Ctrl+Y and Ctrl+Shift+Z; the preset uses Ctrl+Y.
+- 左右反転 (Flip Horizontal) にはデフォルトのショートカットが無いため、
+  プリセットには入れていません。
+  Flip Horizontal has no default shortcut in CLIP STUDIO PAINT, so it is
+  not part of the preset.
+- macOS では Adobe と同じく Ctrl → Cmd の読み替えが要ります（下の注意）。
+  On macOS, read Ctrl as Cmd, as with the Adobe apps (see the note below).
+
 ## macOS についての注意 / Note for macOS
 
 プリセットが書き込むのは Windows 式の **Ctrl** です。macOS では Adobe の
@@ -77,3 +103,5 @@ Photoshop 27.x, and the official rolling lists below apply as-is.
 - Premiere: <https://helpx.adobe.com/jp/premiere/desktop/get-started/keyboard-shortcuts/default-keyboard-shortcuts.html>
 - Illustrator: <https://helpx.adobe.com/illustrator/desktop/get-started/preferences-and-settings/default-keyboard-shortcuts-for-illustrator.html>
 - Photoshop: <https://helpx.adobe.com/content/dam/help/en/photoshop/using/default-keyboard-shortcuts/photoshop-keyboard-shortcuts.pdf>
+- CLIP STUDIO PAINT (JA): <https://help.clip-studio.com/ja-jp/manual_jp/780_shortcuts/780_shortcuts.htm>
+- CLIP STUDIO PAINT (EN): <https://help.clip-studio.com/en-us/manual_en/780_shortcuts/Menu_Shortcuts.htm>

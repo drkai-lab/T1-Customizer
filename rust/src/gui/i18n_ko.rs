@@ -83,6 +83,12 @@ fn window(key: &str) -> Option<&'static str> {
         "page_led" => "LED",
         "dial_mode_mic" => "마이크 볼륨",
         "dial_mode_headphone" => "이어머프 볼륨",
+        "dial_press_label" => "노브 누르기",
+        "dial_press_cycle" => "볼륨 모드 전환",
+        "dial_press_key" => "키 할당",
+        "dial_press_note" => {
+            "키 할당에서는 누르기로 모드가 전환되지 않습니다. 키 화면에서 K1-C / K2-C를 선택해 쓰세요"
+        }
         "help_heading" => "키 설정 방법",
         "addr_invalid" => "주소는 /로 시작해야 합니다",
         "confirm_cancel" => "취소",

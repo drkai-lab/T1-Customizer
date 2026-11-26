@@ -3,6 +3,8 @@
 ## Unreleased
 
 - アプリプリセットを追加。「キー」ページから Adobe Premiere 2026 / Illustrator 2026 / Photoshop 2026 の定番ショートカット一式を KEY1〜KEY6（現在のプリセット）に一括で書き込める。内容と出典は `docs/app-presets.md`。
+- アプリプリセットに CLIP STUDIO PAINT を追加（ペン／筆／消しゴム／やり直し Ctrl+Y／取り消し／保存）。
+- ノブの押し込みを選べるようにした。ダイヤル画面で「音量モード切り替え」（既定）か「キー割り当て」かを選択。キー割り当てでは押し込みでモードは切り替わらず、キーパネルで K1-C / K2-C を選んで通常キーと同じ書き込みができる（設定は `dial.press_action`）。
 
 ## T1-Customizer 1.0.0
 

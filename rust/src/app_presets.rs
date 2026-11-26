@@ -69,7 +69,7 @@ const fn key(action_en: &'static str, action_ja: &'static str, mods: u8, label: 
 }
 
 /// The built-in presets, in display order.
-pub const APP_PRESETS: [AppPreset; 3] = [
+pub const APP_PRESETS: [AppPreset; 4] = [
     AppPreset {
         id: "premiere",
         name: "Adobe Premiere 2026",
@@ -117,6 +117,20 @@ pub const APP_PRESETS: [AppPreset; 3] = [
         dial_en: "[ / ] : brush size",
         dial_ja: "[ / ]：ブラシサイズ",
     },
+    AppPreset {
+        id: "clipstudio",
+        name: "CLIP STUDIO PAINT",
+        keys: [
+            key("Pen Tool", "ペン", 0, "P"),
+            key("Brush Tool", "筆", 0, "B"),
+            key("Eraser Tool", "消しゴム", 0, "E"),
+            key("Redo", "やり直し", CTRL, "Y"),
+            key("Undo", "取り消し", CTRL, "Z"),
+            key("Save", "保存", CTRL, "S"),
+        ],
+        dial_en: "[ / ] : brush size",
+        dial_ja: "[ / ]：ブラシサイズ",
+    },
 ];
 
 /// The settings description recorded for a preset key, in the same form
@@ -136,14 +150,14 @@ mod tests {
     use crate::keys::label_for_usage;
 
     #[test]
-    fn three_presets_with_six_keys_each() {
-        assert_eq!(APP_PRESETS.len(), 3);
+    fn four_presets_with_six_keys_each() {
+        assert_eq!(APP_PRESETS.len(), 4);
         assert_eq!(
             APP_PRESETS
                 .iter()
                 .map(|preset| preset.id)
                 .collect::<Vec<_>>(),
-            ["premiere", "illustrator", "photoshop"]
+            ["premiere", "illustrator", "photoshop", "clipstudio"]
         );
         for preset in &APP_PRESETS {
             assert_eq!(preset.keys.len(), 6, "{}", preset.id);
@@ -203,5 +217,9 @@ mod tests {
         let photoshop = preset("photoshop").unwrap();
         assert_eq!(description(&photoshop.keys[3]), "Ctrl+T");
         assert_eq!(description(&photoshop.keys[5]), "Ctrl+S");
+        let clipstudio = preset("clipstudio").unwrap();
+        assert_eq!(description(&clipstudio.keys[0]), "P");
+        assert_eq!(description(&clipstudio.keys[3]), "Ctrl+Y");
+        assert_eq!(description(&clipstudio.keys[4]), "Ctrl+Z");
     }
 }
