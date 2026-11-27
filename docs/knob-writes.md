@@ -36,11 +36,17 @@
    - ノブスロットへの書き込みは、送信したフレーム列（16進）もあわせて
      `knob write …` 行に記録する。失敗した段階は `write failed: …` 行に残る。
 
-アプリログの場所（OS ごと）:
+アプリログの場所:
 
-- Windows: `%APPDATA%\t1-keyboard\state\monitor.log`
-- macOS: `~/Library/Application Support/t1-keyboard/state/monitor.log`
-- Linux: `~/.local/state/t1-keyboard/monitor.log`
+- 実行ファイル（`.exe`）と同じフォルダの `monitor.log`（例: ポータブル版なら
+  exe の隣、インストーラー版ならインストール先フォルダ）。
+- インストール先フォルダへ書き込めない場合（Program Files 配下など）は、
+  従来の状態フォルダへ出力する:
+  - Windows: `%APPDATA%\t1-keyboard\state\monitor.log`
+  - macOS: `~/Library/Application Support/t1-keyboard/state/monitor.log`
+  - Linux: `~/.local/state/t1-keyboard/monitor.log`
+- 書き込み失敗時の表示には、実際に使われているログの場所が `[log: …]` として
+  出るので、そちらが確実。
 
 ## 未検証
 
