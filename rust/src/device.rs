@@ -3,8 +3,8 @@
 
 use crate::protocol::{
     DEFAULT_DATA_LEN, WriteStep, frame, frame_delay_after_ms, is_knob_slot, key_write_steps,
-    layer_report, led_write_steps, media_write_steps, mouse_write_steps, probe_candidates,
-    probe_report,
+    layer_report, led_set_steps, led_write_steps, media_write_steps, mouse_write_steps,
+    probe_candidates, probe_report,
 };
 use crate::state;
 use crate::transport::{DynTransport, make_transport};
@@ -293,6 +293,15 @@ impl T1Device {
     pub fn write_led(&mut self, layer: u8, mode: u8) -> bool {
         let steps = led_write_steps(layer, self.report_id, mode);
         self.run_steps("write_led", &steps)
+    }
+
+    /// Change the LED mode for the running session only, without
+    /// the flash save `write_led` performs. The resident's preset-1
+    /// blink loop calls this about once a second; the stored
+    /// per-layer mode is left alone.
+    pub fn set_led_mode(&mut self, layer: u8, mode: u8) -> bool {
+        let steps = led_set_steps(layer, self.report_id, mode);
+        self.run_steps("set_led_mode", &steps)
     }
 }
 

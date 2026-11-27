@@ -245,6 +245,21 @@ pub fn led_write_steps(layer: u8, report_id: u8, mode: u8) -> Vec<WriteStep> {
     out
 }
 
+/// The step sequence for a *runtime-only* LED mode change: the LED
+/// report without the flash save. The resident's preset-1 blink loop
+/// toggles the mode about once a second; routing that through the
+/// saving sequence would program the flash on every toggle. The
+/// stored per-layer mode is untouched, so a layer switch or power
+/// cycle restores the saved effect.
+pub fn led_set_steps(layer: u8, report_id: u8, mode: u8) -> Vec<WriteStep> {
+    let mut out = Vec::new();
+    if report_id != 0 {
+        out.push(step("layer", &layer_report(layer)));
+    }
+    out.push(step("led", &led_report(layer, report_id, mode)));
+    out
+}
+
 /// Payloads `write_key` sends: optional layer switch, group reports, flash.
 pub fn write_key_payloads(
     report_id: u8,
@@ -362,6 +377,25 @@ pub struct UsbdevfsCtrl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn led_set_steps_never_saves_to_flash() {
+        // The blink loop toggles the mode about once a second; the
+        // runtime-only sequence must carry the LED report itself and
+        // no save frame (0xAA …) in any position.
+        for report_id in [0u8, 3] {
+            let steps = led_set_steps(1, report_id, 0);
+            assert!(steps.iter().all(|s| s.payload[0] != 0xAA));
+            let led = steps.last().expect("an LED step");
+            assert_eq!(led.payload, led_report(1, report_id, 0).to_vec());
+            // The saving sequence for the same arguments is exactly
+            // these steps plus the flash save at the end.
+            let saving = led_write_steps(1, report_id, 0);
+            assert_eq!(saving.len(), steps.len() + 1);
+            assert_eq!(saving[..steps.len()], steps[..]);
+            assert_eq!(saving[steps.len()].payload, flash_led_report().to_vec());
+        }
+    }
 
     #[test]
     fn interface_sizes_follow_pointer_width() {

@@ -672,9 +672,9 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
         }
         "dial_preset_note" => {
             if ja {
-                "音量モード切り替えのときは、ノブを押したまま左右に回すとプリセット（レイヤー）が切り替わります（常駐モニタが必要です）。LEDはプリセットごとに効果が変わります（1=点灯、2=カラーサイクル、3=呼吸。本体に色を指定する機能はないため色そのものは変えられません）。キー割り当てモードでは使えません"
+                "音量モード切り替えのときは、ノブを押したまま左右に回すとプリセット（レイヤー）が切り替わります（常駐モニタが必要です）。LEDはプリセットごとに効果が変わり、そのプリセットの間ずっとループします（1=点滅ループ、2=カラーサイクル、3=呼吸。本体に色を指定する機能はないため色そのものは変えられません）。キー割り当てモードでは使えません"
             } else {
-                "In volume mode switch mode, hold the knob pressed and twist left/right to switch the preset (layer); the resident monitor must be running. The LED effect changes per preset (1 = steady, 2 = colour cycle, 3 = breathing — the device has no way to set a colour, so colours themselves cannot change). Not available in key assignment mode."
+                "In volume mode switch mode, hold the knob pressed and twist left/right to switch the preset (layer); the resident monitor must be running. The LED pattern changes per preset and keeps looping while that preset is active (1 = blinking loop, 2 = colour cycle, 3 = breathing — the device has no way to set a colour, so colours themselves cannot change). Not available in key assignment mode."
             }
         }
         "reconnect" => {

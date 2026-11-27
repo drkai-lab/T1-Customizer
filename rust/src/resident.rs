@@ -304,6 +304,88 @@ fn apply_preset_to_device(preset: u8, led_written: &mut [bool; 4], force_led: bo
     device.close();
 }
 
+/// Host-driven LED loop for the active preset. Only preset 1 needs
+/// it: its firmware effect (steady) does not loop, so the resident
+/// blinks it by toggling the *runtime* LED mode — on/off once a
+/// second, via the save-free `set_led_mode`, so the flash is never
+/// programmed by the loop. Presets 2 and 3 loop inside the firmware
+/// once `apply_preset_to_device` has set them, and this driver sends
+/// nothing for them (`preset_gesture::led_loop_mode` returns None).
+///
+/// The connection discipline matches `apply_preset_to_device`:
+/// open, write, close, so the GUI is never blocked for long. The
+/// `T1Device` itself is kept between ticks (transport closed) so
+/// its connect-failure log de-duplication spans attempts; a failed
+/// send backs off for a few seconds instead of retrying every tick.
+struct LedLoop {
+    device: crate::device::T1Device,
+    preset: u8,
+    anchor: Instant,
+    last_sent: Option<u8>,
+    retry_after: Option<Instant>,
+}
+
+impl LedLoop {
+    fn new(preset: u8) -> Self {
+        Self {
+            device: crate::device::T1Device::new(),
+            preset,
+            anchor: Instant::now(),
+            last_sent: None,
+            retry_after: None,
+        }
+    }
+
+    /// Re-anchor after the resident (re)applied a preset: the blink
+    /// restarts from its on phase and the next tick sends afresh.
+    fn sync(&mut self, preset: u8) {
+        self.preset = preset;
+        self.anchor = Instant::now();
+        self.last_sent = None;
+        self.retry_after = None;
+    }
+
+    /// Advance the loop for the currently active preset. Called on
+    /// every monitor iteration (the loop wakes at least every
+    /// ~250 ms); sends at most one LED frame per blink phase change
+    /// — one write per second while preset 1 is active, none at all
+    /// for the firmware-looped presets.
+    fn tick(&mut self, preset: u8) {
+        if preset != self.preset {
+            self.sync(preset);
+        }
+        let elapsed_ms = self.anchor.elapsed().as_millis() as u64;
+        let Some(mode) = preset_gesture::led_loop_mode(preset, elapsed_ms) else {
+            return;
+        };
+        if self.last_sent == Some(mode) {
+            return;
+        }
+        if self.retry_after.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        match self.device.connect() {
+            Ok(true) => {
+                if self.device.set_led_mode(preset, mode) {
+                    self.last_sent = Some(mode);
+                    self.retry_after = None;
+                } else {
+                    // The failed stage is already in the app log
+                    // (write_step); just back off here.
+                    self.retry_after = Some(Instant::now() + Duration::from_secs(5));
+                }
+                self.device.close();
+            }
+            // Not connected / connect error: connect() has logged
+            // it (de-duplicated on this device instance). Back off
+            // and let a later tick retry.
+            Ok(false) | Err(_) => {
+                self.retry_after = Some(Instant::now() + Duration::from_secs(5));
+            }
+        }
+    }
+}
+
 fn dial_step(settings: &Settings) -> f64 {
     settings
         .get("dial")
@@ -352,6 +434,9 @@ fn monitor_loop() {
     // LED effects this monitor session has already stored per preset
     // (index 1..=3); bounds flash writes to one per preset per run.
     let mut led_written = [false; 4];
+    // Host-driven blink loop for preset 1, whose firmware effect is
+    // steady and would otherwise sit still (see LedLoop).
+    let mut led_loop = LedLoop::new(gesture.preset());
 
     let reload = |settings: &mut Settings,
                   modes: &mut Vec<String>,
@@ -402,8 +487,12 @@ fn monitor_loop() {
     // active layer plus that layer's LED effect, so the pad and the
     // app agree even if the pad was power-cycled or used elsewhere.
     apply_preset_to_device(gesture.preset(), &mut led_written, true, "startup");
+    led_loop.sync(gesture.preset());
 
     loop {
+        // Keep the active preset's LED pattern looping (a no-op for
+        // the firmware-looped presets 2 and 3).
+        led_loop.tick(gesture.preset());
         // Pair chords (Linux): while enabled, the grabbed pump replaces
         // the listen-only source. Toggling off shuts the engine down
         // cleanly and releases the grab.
@@ -542,6 +631,7 @@ fn monitor_loop() {
                         let _ = settings::save_settings(&settings);
                         mtime = settings::settings_mtime();
                         apply_preset_to_device(preset, &mut led_written, false, "hold-twist");
+                        led_loop.sync(preset);
                     }
                     continue;
                 }
