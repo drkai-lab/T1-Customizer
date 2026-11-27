@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::VERSION;
 use crate::app_presets;
+use crate::button_config::{self, ButtonAssignment};
 use crate::device::{DeviceError, T1Device};
 use crate::edition;
 use crate::gui::fonts;
@@ -768,6 +769,23 @@ impl App {
         }
     }
 
+    /// Mirror a successful write into `settings["buttons"]` so the
+    /// configuration can be saved to a file and restored later. The
+    /// recorded value is the real assignment (in pair mode the device
+    /// carries the sentinel, but the single is what a restore burns).
+    fn record_button(&mut self, layer: u8, key: u8, written: &Written) {
+        let assignment = match written {
+            Written::Keys { keys, lone } => ButtonAssignment::Key {
+                groups: keys.clone(),
+                lone: *lone,
+            },
+            Written::Media(name) => ButtonAssignment::Media(name.clone()),
+            Written::Mouse(name) => ButtonAssignment::Mouse(name.clone()),
+        };
+        button_config::record(&mut self.settings, layer, key, &assignment);
+        self.save();
+    }
+
     fn finish_key_write(&mut self, key: u8, label: &str, written: Written, ok: bool) {
         let target = format!("KEY{key}");
         if !ok {
@@ -776,6 +794,7 @@ impl App {
         }
         let prev = self.last_written.get(&(self.layer, key)).cloned();
         self.remember(label);
+        self.record_button(self.layer, key, &written);
         self.last_written.insert(
             (self.layer, key),
             KeySnap {
@@ -830,6 +849,7 @@ impl App {
         self.layer = undo.layer;
         self.selected = Some(undo.key);
         self.remember(&undo.snap.desc);
+        self.record_button(undo.layer, undo.key, &undo.snap.written);
         self.last_written
             .insert((undo.layer, undo.key), undo.snap.clone());
         self.undo = None;
@@ -837,6 +857,107 @@ impl App {
             i18n::wrote_line(&self.lang, &format!("KEY{}", undo.key), &undo.snap.desc),
             true,
         );
+    }
+
+    /// Save the whole button configuration (recorded buttons, pair
+    /// chords, dial settings, descriptions) to a JSON file the user
+    /// picks.
+    fn export_button_config(&mut self) {
+        if !button_config::has_exportable(&self.settings) {
+            self.toast = self.t("config_save_empty").to_string();
+            return;
+        }
+        let Some(path) = rfd::FileDialog::new()
+            .set_title(self.t("config_save"))
+            .add_filter("JSON", &["json"])
+            .set_file_name("t1-button-config.json")
+            .save_file()
+        else {
+            return;
+        };
+        let doc = button_config::build_export(&self.settings);
+        let text = serde_json::to_string_pretty(&doc).unwrap_or_default();
+        match std::fs::write(&path, text) {
+            Ok(()) => {
+                self.toast = self
+                    .t("config_saved")
+                    .replace("{path}", &path.display().to_string());
+            }
+            Err(_) => {
+                self.toast = self.t("config_save_failed").to_string();
+            }
+        }
+    }
+
+    /// Load a configuration file saved by [`Self::export_button_config`].
+    /// The file is validated before anything changes; on success the
+    /// imported sections replace the current ones and every recorded
+    /// assignment is written back to the device through the usual burn
+    /// paths. Without a connected device the settings are loaded and
+    /// the toast says the device write is still pending.
+    fn import_button_config(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title(self.t("config_load"))
+            .add_filter("JSON", &["json"])
+            .pick_file()
+        else {
+            return;
+        };
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(err) => {
+                self.toast = format!("{} ({err})", self.t("config_load_bad"));
+                return;
+            }
+        };
+        let imported = match button_config::parse_import(&text) {
+            Ok(imported) => imported,
+            Err(code) => {
+                self.toast = format!("{} ({code})", self.t("config_load_bad"));
+                return;
+            }
+        };
+        let skipped_invalid = imported.skipped_entries;
+        button_config::apply_import(&mut self.settings, &imported);
+        self.pair_sel = None;
+        self.save();
+        if !self.device.is_open() {
+            self.toast = self.t("config_loaded_pending").to_string();
+            return;
+        }
+        let plan = button_config::write_plan(
+            &self.settings,
+            self.press_is_key(),
+            pair_chord::chords_enabled(&self.settings),
+        );
+        let saved_layer = self.layer;
+        let (mut ok, mut failed) = (0usize, 0usize);
+        for write in &plan.writes {
+            self.layer = write.layer;
+            let good = match &write.assignment {
+                ButtonAssignment::Key { groups, lone } => self.burn_key(write.key, groups, *lone),
+                ButtonAssignment::Media(name) => {
+                    self.device.write_media(write.key, write.layer, name)
+                }
+                ButtonAssignment::Mouse(name) => {
+                    self.device.write_mouse(write.key, write.layer, name)
+                }
+            };
+            if good {
+                ok += 1;
+            } else {
+                failed += 1;
+            }
+        }
+        self.layer = saved_layer;
+        let skipped = plan.skipped.len() + skipped_invalid;
+        let line = self
+            .t("config_loaded_counts")
+            .replace("{ok}", &ok.to_string())
+            .replace("{failed}", &failed.to_string())
+            .replace("{skipped}", &skipped.to_string());
+        self.status = line.clone();
+        self.toast = line;
     }
 
     fn assignment_text(&self) -> String {
@@ -1204,6 +1325,13 @@ impl App {
                         .clicked()
                 {
                     self.restore_undo();
+                }
+                ui.add_space(8.0);
+                if ui.button(self.t("config_save")).clicked() {
+                    self.export_button_config();
+                }
+                if ui.button(self.t("config_load")).clicked() {
+                    self.import_button_config();
                 }
             });
 

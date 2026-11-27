@@ -28,6 +28,10 @@ English | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [한국�
 - Key pair mode: assign combos to two-key presses (KEY1+2, 4+1, …) with
   mis-input prevention; singles may be delayed up to the decision
   interval (see `docs/chord-keys.md`)
+- Save / load button settings: every write is recorded, and the left
+  panel's "Save settings" / "Load settings" buttons export the whole
+  configuration (buttons, pair chords, dial, descriptions) to one JSON
+  file and restore it onto the device (see `docs/button-config.md`)
 - `settings.json` is portable across Linux / Windows / macOS (all codes
   stored as Linux evdev codes). Settings written by the original app for
   these features load unchanged; settings for removed features are

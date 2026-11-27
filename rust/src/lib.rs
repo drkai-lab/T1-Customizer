@@ -6,6 +6,7 @@
 //! files for the remaining fields still load.
 
 pub mod app_presets;
+pub mod button_config;
 pub mod cli;
 pub mod device;
 pub mod edition;

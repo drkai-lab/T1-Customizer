@@ -109,6 +109,62 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
                 "Assigned {desc} to pair {pair}"
             }
         }
+        "config_save" => {
+            if ja {
+                "設定を保存"
+            } else {
+                "Save settings"
+            }
+        }
+        "config_load" => {
+            if ja {
+                "設定を読み込む"
+            } else {
+                "Load settings"
+            }
+        }
+        "config_saved" => {
+            if ja {
+                "設定を保存しました：{path}"
+            } else {
+                "Settings saved: {path}"
+            }
+        }
+        "config_save_empty" => {
+            if ja {
+                "保存できるボタン設定がまだありません"
+            } else {
+                "No button settings to save yet"
+            }
+        }
+        "config_save_failed" => {
+            if ja {
+                "設定の保存に失敗しました"
+            } else {
+                "Could not save the settings"
+            }
+        }
+        "config_load_bad" => {
+            if ja {
+                "設定ファイルを読めませんでした"
+            } else {
+                "Could not read the settings file"
+            }
+        }
+        "config_loaded_pending" => {
+            if ja {
+                "設定を読み込みました。本体が未接続のため、書き込みはまだです"
+            } else {
+                "Settings loaded. No device connected, so nothing was written yet"
+            }
+        }
+        "config_loaded_counts" => {
+            if ja {
+                "設定を読み込みました（書き込み {ok} 件、失敗 {failed} 件、スキップ {skipped} 件）"
+            } else {
+                "Settings loaded ({ok} written, {failed} failed, {skipped} skipped)"
+            }
+        }
         "chords_single_only" => {
             if ja {
                 "ペア押しモード中、KEY1〜KEY6 に書けるのは単一の組み合わせだけです"

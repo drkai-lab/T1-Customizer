@@ -36,6 +36,16 @@ fn window(key: &str) -> Option<&'static str> {
             "본체가 연결되지 않아 단일 키를 되돌리지 못했습니다. 키는 표식 그대로입니다. 연결한 뒤 다시 끄세요."
         }
         "chords_pair_saved" => "페어 {pair}에 {desc}를 할당했습니다",
+        "config_save" => "설정 저장",
+        "config_load" => "설정 불러오기",
+        "config_saved" => "설정을 저장했습니다: {path}",
+        "config_save_empty" => "저장할 버튼 설정이 아직 없습니다",
+        "config_save_failed" => "설정을 저장하지 못했습니다",
+        "config_load_bad" => "설정 파일을 읽지 못했습니다",
+        "config_loaded_pending" => "설정을 불러왔습니다. 본체가 연결되지 않아 아직 쓰지 않았습니다",
+        "config_loaded_counts" => {
+            "설정을 불러왔습니다 (쓰기 {ok}건, 실패 {failed}건, 건너뜀 {skipped}건)"
+        }
         "chords_single_only" => "페어 모드에서는 KEY1~KEY6에 단일 조합만 쓸 수 있습니다",
         "chords_keys_only" => "페어 모드에서는 KEY1~KEY6에 미디어/마우스를 쓸 수 없습니다",
         "chords_on_done" => "키 페어 누르기 모드를 켰습니다",
