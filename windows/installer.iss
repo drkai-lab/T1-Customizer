@@ -4,7 +4,7 @@
 
 #define AppName "T1-Customizer"
 #define AppNameJa "T1-Customizer"
-#define AppVersion "1.0.2"
+#define AppVersion "1.0.3"
 #define AppPublisher "drkai-lab"
 #define AppURL "https://github.com/drkai-lab/T1-Customizer"
 
@@ -14,7 +14,7 @@ AppId={{B7E2C1A0-3F4D-4E5A-9B8C-1D2E3F4A5B6C}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-VersionInfoVersion=1.0.2.0
+VersionInfoVersion=1.0.3.0
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}

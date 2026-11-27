@@ -8,7 +8,7 @@ fn main() {
     if icon.is_file() {
         res.set_icon(icon.to_str().unwrap_or("app.ico"));
     }
-    let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "1.0.2".into());
+    let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "1.0.3".into());
     res.set("FileVersion", &format!("{version}.0"));
     res.set("ProductVersion", &version);
     res.set("ProductName", "T1-Customizer");
