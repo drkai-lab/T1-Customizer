@@ -42,10 +42,85 @@ jobs:
       - name: Rust build
         working-directory: rust
         run: cargo build --release
+      # --- SignPath code signing (tags only, opt-in) ---------------------
+      # All signing steps are gated on the repository variable
+      # SIGNPATH_ENABLED == 'true'. Until the maintainer finishes the
+      # SignPath Foundation setup (see docs/signpath-application.md) and
+      # sets that variable, tag builds behave exactly as before.
+      # Order: sign the app exes first, package the installer from the
+      # signed exes, then sign the installer itself. The portable zip is
+      # built afterwards from dist-win, so it contains the signed exes.
+      - name: Stage unsigned app exes (SignPath)
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-win | Out-Null
+          Copy-Item rust/target/release/t1-keyboard-config.exe, rust/target/release/t1-keyboard-config-gui.exe dist-win
+      - name: Upload unsigned app exes (SignPath)
+        id: upload-unsigned-exes
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-app-exes
+          path: |
+            dist-win/t1-keyboard-config.exe
+            dist-win/t1-keyboard-config-gui.exe
+      - name: Sign app exes (SignPath)
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIG_EXES || 'app-exes' }}
+          github-artifact-id: ${{ steps.upload-unsigned-exes.outputs.artifact-id }}
+          wait-for-completion: true
+          # Foundation signing requests need manual approval; allow time.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-exes
+      - name: Replace app exes with signed ones (SignPath)
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: Copy-Item signed-exes/*.exe dist-win -Force
       - name: Build Windows installer (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED != 'true'
         shell: pwsh
         run: ./windows/build-release.ps1
+      - name: Build Windows installer from signed exes (tags only, SignPath)
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        # -SkipBuild: do not rebuild or re-copy the exes; dist-win already
+        # holds the signed ones. The script still verifies the version and
+        # runs Inno Setup so the installer embeds the signed exes.
+        run: ./windows/build-release.ps1 -SkipBuild
+      - name: Upload unsigned installer (SignPath)
+        id: upload-unsigned-setup
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup
+          path: dist-win/t1-customizer-*-setup.exe
+      - name: Sign installer (SignPath)
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIG_INSTALLER || 'installer' }}
+          github-artifact-id: ${{ steps.upload-unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-setup
+      - name: Replace installer with signed one (SignPath)
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item dist-win/t1-customizer-*-setup.exe
+          Copy-Item signed-setup/*.exe dist-win
+      # --- End of SignPath steps -----------------------------------------
       - name: Build portable zip (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
