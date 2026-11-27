@@ -1375,6 +1375,11 @@ impl App {
             }
             ui.separator();
             self.show_tray_strip(ui);
+            ui.label(
+                egui::RichText::new(format!("v{}", crate::VERSION))
+                    .small()
+                    .weak(),
+            );
             if self.tray_note {
                 ui.group(|ui| {
                     ui.heading(self.t("tray_title"));
