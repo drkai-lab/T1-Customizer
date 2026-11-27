@@ -26,12 +26,24 @@
    シーケンス全体を1回だけ再試行する（割り当ては冪等）。
 3. **診断の可視化**:
    - 書き込み失敗時のトーストに、失敗した処理・段階・転送エラーを括弧付きで
-     表示する（例: `書き込みに失敗しました (write_key stage=save 4/4: write-failed)`）。
-   - ノブスロットへの書き込みは、送信したフレーム列（16進）と結果をアプリログ
-     （状態ディレクトリの `monitor.log`）に記録する。失敗した段階も同じログに残る。
+     表示し、末尾にアプリログの場所も出す
+     （例: `書き込みに失敗しました (write_key stage=save 4/4: write-failed) [log: …\monitor.log]`）。
+   - GUI からの割り当て書き込みは、対象スロットを問わず、キー／メディア／
+     マウスとも成否をアプリログに1行ずつ記録する
+     （`write write_mouse keynum=13 layer=1 ok=false` の形式）。アプリ内部で
+     失敗する書き込み（未知のアクション名など、本体へ何も送る前に止まるもの）
+     も、アクション名つきで同じログに残る。
+   - ノブスロットへの書き込みは、送信したフレーム列（16進）もあわせて
+     `knob write …` 行に記録する。失敗した段階は `write failed: …` 行に残る。
+
+アプリログの場所（OS ごと）:
+
+- Windows: `%APPDATA%\t1-keyboard\state\monitor.log`
+- macOS: `~/Library/Application Support/t1-keyboard/state/monitor.log`
+- Linux: `~/.local/state/t1-keyboard/monitor.log`
 
 ## 未検証
 
 実機（T1 本体）でノブ割り当てが実際に反映されるかは未検証。上記で解消しない
-場合は、`monitor.log` の `knob write …` 行（フレーム列と ok=false の段階）が
-次の切り分け材料になる。
+場合は、アプリログの `write …` 行と `knob write …` 行（フレーム列と
+ok=false の段階）が次の切り分け材料になる。

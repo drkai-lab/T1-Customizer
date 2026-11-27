@@ -793,10 +793,14 @@ impl App {
     /// The write-failure line, with the device's recorded failure
     /// detail (operation, stage, transport error) appended when there
     /// is one — a bare "failed" gives the user nothing to report.
+    /// The app log's location is appended too: every assignment write
+    /// is logged there, and "the log file does not exist" must never
+    /// be the end of a bug report again.
     fn ng_line(&mut self) -> String {
+        let log = paths::log_file().display().to_string();
         match self.device.last_failure() {
-            Some(detail) => format!("{} ({detail})", self.t("download_ng")),
-            None => self.t("download_ng").to_string(),
+            Some(detail) => format!("{} ({detail}) [log: {log}]", self.t("download_ng")),
+            None => format!("{} [log: {log}]", self.t("download_ng")),
         }
     }
 

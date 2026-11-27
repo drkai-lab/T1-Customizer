@@ -230,15 +230,28 @@ impl T1Device {
     /// Knob-slot writes get one full retry: the assignment is
     /// idempotent, and a retry distinguishes a transient frame loss
     /// from a slot the firmware genuinely refuses.
+    /// Record the outcome of an assignment write in the app log
+    /// (`paths::log_file()`), whatever the target slot. Every GUI
+    /// assignment write — key, media, mouse; success or failure —
+    /// leaves one of these lines, so a reported failure can always be
+    /// matched against the log afterwards.
+    fn log_write_outcome(&self, op: &str, keynum: u8, layer: u8, ok: bool) {
+        state::log_line(&format!(
+            "write {op} keynum={keynum} layer={layer} ok={ok}"
+        ));
+    }
+
     fn run_write(&mut self, op: &str, keynum: u8, layer: u8, steps: &[WriteStep]) -> bool {
         let knob = is_knob_slot(keynum);
         let ok = self.run_steps(op, steps);
+        self.log_write_outcome(op, keynum, layer, ok);
         if knob {
             self.log_knob_write(op, keynum, layer, steps, ok);
         }
         if !ok && knob && self.is_open() {
             state::log_line(&format!("knob write {op} keynum={keynum}: retrying once"));
             let retry_ok = self.run_steps(op, steps);
+            self.log_write_outcome(op, keynum, layer, retry_ok);
             self.log_knob_write(op, keynum, layer, steps, retry_ok);
             return retry_ok;
         }
@@ -256,7 +269,13 @@ impl T1Device {
 
     pub fn write_media(&mut self, keynum: u8, layer: u8, action: &str) -> bool {
         let Some(steps) = media_write_steps(self.report_id, keynum, layer, action) else {
+            // Log this too: the write dies before any device traffic,
+            // and a failure that leaves no trace in the log cannot be
+            // diagnosed after the fact.
             self.last_failure = Some(format!("write_media: unknown action {action}"));
+            state::log_line(&format!(
+                "write write_media keynum={keynum} layer={layer} action={action} ok=false: unknown action"
+            ));
             return false;
         };
         self.run_write("write_media", keynum, layer, &steps)
@@ -265,6 +284,9 @@ impl T1Device {
     pub fn write_mouse(&mut self, keynum: u8, layer: u8, action: &str) -> bool {
         let Some(steps) = mouse_write_steps(self.report_id, keynum, layer, action) else {
             self.last_failure = Some(format!("write_mouse: unknown action {action}"));
+            state::log_line(&format!(
+                "write write_mouse keynum={keynum} layer={layer} action={action} ok=false: unknown action"
+            ));
             return false;
         };
         self.run_write("write_mouse", keynum, layer, &steps)
@@ -279,5 +301,56 @@ impl T1Device {
 impl Default for T1Device {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every GUI assignment write must leave a line in the app log —
+    /// including a write that dies before any device traffic (unknown
+    /// action) and one that fails on a closed transport. Until this
+    /// was enforced, a failed knob mouse write produced no log file
+    /// at all: only knob writes that reached the step runner were
+    /// logged, and the unknown-action return path logged nothing.
+    #[test]
+    fn assignment_writes_are_logged_even_when_they_fail_early() {
+        let dir = std::env::temp_dir().join(format!("t1-device-log-test-{}", std::process::id()));
+        // SAFETY: this is the only test that redirects the state dir,
+        // and no other test reads the log file.
+        unsafe { std::env::set_var("T1_STATE_DIR", &dir) };
+        let mut device = T1Device::new();
+
+        // Unknown action (the display-label leak): fails in the app,
+        // before run_write — must still be logged with its action.
+        assert!(!device.write_mouse(13, 1, "Wheel Up"));
+        assert!(
+            device
+                .last_failure()
+                .is_some_and(|f| f.contains("unknown action Wheel Up"))
+        );
+
+        // Valid action on a knob slot, transport closed: fails in the
+        // step runner — the outcome line and the knob frame line must
+        // both be logged.
+        assert!(!device.write_mouse(13, 1, "wheel_up"));
+
+        let text = std::fs::read_to_string(dir.join("monitor.log"))
+            .expect("a write attempt must create the log file");
+        assert!(
+            text.contains(
+                "write write_mouse keynum=13 layer=1 action=Wheel Up ok=false: unknown action"
+            ),
+            "log was:\n{text}"
+        );
+        assert!(
+            text.contains("write write_mouse keynum=13 layer=1 ok=false"),
+            "log was:\n{text}"
+        );
+        assert!(text.contains("knob write write_mouse"), "log was:\n{text}");
+
+        unsafe { std::env::remove_var("T1_STATE_DIR") };
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
