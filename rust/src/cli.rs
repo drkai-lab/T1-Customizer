@@ -49,5 +49,59 @@ pub fn run(argv: &[String]) -> i32 {
     if args.selftest {
         return resident::selftest(args.write);
     }
+    if let Some(code) = gui_handoff() {
+        return code;
+    }
     crate::gui::run_gui()
+}
+
+/// Whether a process that is about to open the GUI should hand off to
+/// the GUI exe instead: true when this process is NOT already the
+/// GUI exe and a sibling GUI exe exists. The console-subsystem exe
+/// (`t1-keyboard-config.exe`) also opens the GUI with no arguments,
+/// but it would keep its console window on screen for the whole
+/// session — and the monitor child it spawns via `current_exe` would
+/// inherit the problem.
+pub fn should_handoff_to_gui(exe_name: &str, sibling_gui_exists: bool) -> bool {
+    sibling_gui_exists && !exe_name.eq_ignore_ascii_case("t1-keyboard-config-gui.exe")
+}
+
+/// Windows: hand the GUI to the sibling `t1-keyboard-config-gui.exe`
+/// (windows subsystem, no console) and exit. Returns the exit code
+/// when the handoff happened, or None to open the GUI in-process
+/// (already the GUI exe, no sibling, or the spawn failed).
+#[cfg(windows)]
+fn gui_handoff() -> Option<i32> {
+    let exe = std::env::current_exe().ok()?;
+    let name = exe.file_name()?.to_str()?;
+    let sibling = exe.with_file_name("t1-keyboard-config-gui.exe");
+    if !should_handoff_to_gui(name, sibling.is_file()) {
+        return None;
+    }
+    use std::os::windows::process::CommandExt;
+    let spawned = std::process::Command::new(&sibling)
+        .creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0)
+        .spawn();
+    match spawned {
+        Ok(_) => Some(0),
+        Err(_) => None,
+    }
+}
+
+#[cfg(not(windows))]
+fn gui_handoff() -> Option<i32> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handoff_only_from_the_console_exe_with_a_gui_sibling() {
+        assert!(should_handoff_to_gui("t1-keyboard-config.exe", true));
+        assert!(!should_handoff_to_gui("t1-keyboard-config.exe", false));
+        assert!(!should_handoff_to_gui("t1-keyboard-config-gui.exe", true));
+        assert!(!should_handoff_to_gui("T1-Keyboard-Config-GUI.exe", true));
+    }
 }

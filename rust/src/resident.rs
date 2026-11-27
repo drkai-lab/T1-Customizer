@@ -479,6 +479,15 @@ pub fn start_monitor_process() -> Result<(), String> {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    #[cfg(windows)]
+    {
+        // The monitor must never show a console window: when the GUI
+        // was itself started through the console-subsystem exe,
+        // `current_exe` IS that console exe, and without
+        // CREATE_NO_WINDOW the child would pop a shell window.
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0);
+    }
     command.spawn().map_err(|err| err.to_string())?;
     Ok(())
 }
@@ -491,9 +500,14 @@ pub fn stop_monitor_process() -> bool {
         }
         #[cfg(windows)]
         {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .output();
+            // taskkill is a console program; spawned from the
+            // windowless GUI it would flash a console window without
+            // CREATE_NO_WINDOW.
+            use std::os::windows::process::CommandExt;
+            let mut kill = std::process::Command::new("taskkill");
+            kill.args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0);
+            let _ = kill.output();
         }
         state::remove_pid_file();
         return true;
