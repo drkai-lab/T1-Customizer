@@ -271,6 +271,39 @@ mod tests {
     }
 
     #[test]
+    fn named_reports_accept_knob_slots() {
+        // Knob slots 13..=18 are ordinary keynums in the report's
+        // first byte; the protocol does not restrict media/mouse
+        // writes to KEY1..KEY6.
+        for keynum in 13..=18u8 {
+            let report = mouse_report(keynum, 1, 0, "left").expect("mouse report");
+            assert_eq!(report[0], keynum);
+            assert_eq!(report[1] & 0x0F, TYPE_MOUSE);
+            let report = media_report(keynum, 1, 0, "play").expect("media report");
+            assert_eq!(report[0], keynum);
+            assert_eq!(report[1] & 0x0F, TYPE_MEDIA);
+        }
+    }
+
+    #[test]
+    fn action_tables_resolve_only_in_their_own_encoder() {
+        for (action, _) in crate::keys::MOUSE_ACTIONS {
+            assert!(mouse_payload(action).is_some(), "mouse action {action}");
+            // A mouse action fed down the media path encodes to
+            // nothing, which is why the GUI must never mix the two
+            // paths (the Mouse page's write button once did).
+            for rid in [0u8, 2, 3] {
+                assert!(media_bytes(rid, action).is_none(), "mouse action {action}");
+            }
+        }
+        for (action, _) in crate::keys::MEDIA_ACTIONS {
+            for rid in [0u8, 2, 3] {
+                assert!(media_bytes(rid, action).is_some(), "media action {action}");
+            }
+        }
+    }
+
+    #[test]
     #[cfg(target_pointer_width = "64")]
     fn urb_struct_sizes() {
         assert_eq!(std::mem::size_of::<UsbdevfsUrb>(), 56);

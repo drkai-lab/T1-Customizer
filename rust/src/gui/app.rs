@@ -307,8 +307,10 @@ impl App {
         match self.page {
             0 => self.write_basic(),
             1 => self.write_modifier(),
-            2 => self.write_named(keys::MEDIA_ACTIONS, true),
-            3 => self.write_named(keys::MOUSE_ACTIONS, true),
+            2 | 3 => {
+                let (table, media) = named_write_for_page(self.page);
+                self.write_named(table, media);
+            }
             4 => self.write_led(),
             _ => self.toast = self.t("pick_function").to_string(),
         }
@@ -1836,6 +1838,19 @@ fn load_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     Some((image.into_raw(), w, h))
 }
 
+/// Named-action write dispatch for the Media (page 2) and Mouse
+/// (page 3) pages: the action table plus the `media` flag for
+/// `write_named`. The Mouse page must pass `media: false` — with
+/// `true` the write reads the media selection instead of the mouse
+/// selection and encodes through the media table (whose actions do
+/// not include any mouse action), so mouse writes always failed.
+fn named_write_for_page(page: usize) -> (&'static [(&'static str, &'static str)], bool) {
+    match page {
+        2 => (keys::MEDIA_ACTIONS, true),
+        _ => (keys::MOUSE_ACTIONS, false),
+    }
+}
+
 fn load_tray_icon() -> Option<tray_icon::Icon> {
     let (rgba, w, h) = load_rgba(&icon_file("tray"))?;
     tray_icon::Icon::from_rgba(rgba, w, h).ok()
@@ -1852,5 +1867,25 @@ fn save_png(path: &Path, image: &egui::ColorImage) {
     );
     if let Some(buffer) = buffer {
         let _ = buffer.save(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_write_pages_use_their_own_table_and_path() {
+        let (table, media) = named_write_for_page(2);
+        assert!(media);
+        assert_eq!(table, keys::MEDIA_ACTIONS);
+
+        // Regression: the Mouse page once dispatched with
+        // `media: true`, so its write button read the media
+        // selection and encoded mouse actions through the media
+        // path — mouse writes always failed, knob slots included.
+        let (table, media) = named_write_for_page(3);
+        assert!(!media);
+        assert_eq!(table, keys::MOUSE_ACTIONS);
     }
 }
