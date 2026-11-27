@@ -670,6 +670,13 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
                 "In key assignment mode, press / rotate left / rotate right can all be assigned on the Keys page. The knob does not switch modes or change the volume."
             }
         }
+        "dial_preset_note" => {
+            if ja {
+                "音量モード切り替えのときは、ノブを押したまま左右に回すとプリセット（レイヤー）が切り替わります（常駐モニタが必要です）。LEDはプリセットごとに効果が変わります（1=点灯、2=カラーサイクル、3=呼吸。本体に色を指定する機能はないため色そのものは変えられません）。キー割り当てモードでは使えません"
+            } else {
+                "In volume mode switch mode, hold the knob pressed and twist left/right to switch the preset (layer); the resident monitor must be running. The LED effect changes per preset (1 = steady, 2 = colour cycle, 3 = breathing — the device has no way to set a colour, so colours themselves cannot change). Not available in key assignment mode."
+            }
+        }
         "reconnect" => {
             if ja {
                 "再接続"

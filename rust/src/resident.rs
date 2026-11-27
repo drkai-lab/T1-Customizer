@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use crate::input::{self, InputSource};
 use crate::pair_chord;
+use crate::preset_gesture::{self, PresetGesture};
 use crate::settings::{self, Settings};
 use crate::state;
 use crate::tables::{self, EV_KEY, EV_REL};
@@ -247,6 +248,62 @@ impl ChordPump {
     }
 }
 
+/// Push the resident's preset state to the device: switch the
+/// active layer (`switch_layer`, the `[0xA1, layer]` report every
+/// assignment write already uses) and, unless this session already
+/// wrote it, store the preset's LED effect for that layer.
+///
+/// The connection is short-lived on purpose: on Linux the config
+/// interface is claimed exclusively, so holding it open would block
+/// the GUI for as long as the monitor runs. Every failure is logged
+/// and leaves the resident's state untouched-but-persisted — the
+/// next startup or gesture retries the sync — and an LED failure
+/// never undoes a successful layer switch.
+fn apply_preset_to_device(preset: u8, led_written: &mut [bool; 4], force_led: bool, reason: &str) {
+    let mut device = crate::device::T1Device::new();
+    match device.connect() {
+        Ok(true) => {}
+        Ok(false) => {
+            state::log_line(&format!(
+                "preset {reason}: device not connected ({}); preset {preset} applies on the next successful sync",
+                device.last_error().unwrap_or_default()
+            ));
+            return;
+        }
+        Err(err) => {
+            state::log_line(&format!(
+                "preset {reason}: connect failed: {}; preset {preset} applies on the next successful sync",
+                err.message.replace('\n', " ")
+            ));
+            return;
+        }
+    }
+    if device.switch_layer(preset) {
+        state::log_line(&format!("preset -> {preset} ({reason})"));
+    } else {
+        state::log_line(&format!(
+            "preset {reason}: switch to preset {preset} failed: {}",
+            device.last_failure().unwrap_or_default()
+        ));
+    }
+    if force_led || !led_written[preset as usize] {
+        let mode = preset_gesture::preset_led_mode(preset);
+        if device.write_led(preset, mode) {
+            led_written[preset as usize] = true;
+            state::log_line(&format!(
+                "preset {preset} LED effect -> {} (mode {mode})",
+                preset_gesture::preset_led_effect(preset)
+            ));
+        } else {
+            state::log_line(&format!(
+                "preset {reason}: LED write for preset {preset} failed: {} (the preset switch stands)",
+                device.last_failure().unwrap_or_default()
+            ));
+        }
+    }
+    device.close();
+}
+
 fn dial_step(settings: &Settings) -> f64 {
     settings
         .get("dial")
@@ -289,14 +346,22 @@ fn monitor_loop() {
     let mut chord_pump: Option<ChordPump> = None;
     #[cfg(target_os = "macos")]
     let mut chord_mac_warned = false;
+    // Hold-and-twist preset switching. The tracked preset is the
+    // persisted `layer` setting, shared with the GUI's preset tabs.
+    let mut gesture = PresetGesture::new(preset_gesture::active_preset(&settings));
+    // LED effects this monitor session has already stored per preset
+    // (index 1..=3); bounds flash writes to one per preset per run.
+    let mut led_written = [false; 4];
 
     let reload = |settings: &mut Settings,
                   modes: &mut Vec<String>,
                   mode_idx: &mut usize,
                   rotate_codes: &mut std::collections::HashSet<u16>,
                   push_code: &mut Option<u16>,
-                  chord_cfg: &mut pair_chord::PairChordConfig| {
+                  chord_cfg: &mut pair_chord::PairChordConfig,
+                  gesture: &mut PresetGesture| {
         *settings = settings::load_settings();
+        gesture.sync_preset(preset_gesture::active_preset(settings));
         *chord_cfg = pair_chord::PairChordConfig::from_settings(settings);
         #[cfg(windows)]
         input::pair_chord_set_config(chord_cfg.clone());
@@ -331,7 +396,12 @@ fn monitor_loop() {
         &mut rotate_codes,
         &mut push_code,
         &mut chord_cfg,
+        &mut gesture,
     );
+    // Sync the device with the persisted preset once at startup:
+    // active layer plus that layer's LED effect, so the pad and the
+    // app agree even if the pad was power-cycled or used elsewhere.
+    apply_preset_to_device(gesture.preset(), &mut led_written, true, "startup");
 
     loop {
         // Pair chords (Linux): while enabled, the grabbed pump replaces
@@ -391,6 +461,7 @@ fn monitor_loop() {
                 &mut rotate_codes,
                 &mut push_code,
                 &mut chord_cfg,
+                &mut gesture,
             );
             // A config swap under a running pump: restart it so the new
             // pairs/singles apply (shutdown releases injected keys).
@@ -429,16 +500,29 @@ fn monitor_loop() {
                     continue;
                 }
                 set_dial_held(event.value == 1);
-                if event.value == 1 && modes.len() > 1 {
-                    mode_idx = (mode_idx + 1) % modes.len();
-                    let dial_obj = settings::ensure_object(&mut settings, "dial");
-                    dial_obj.insert("start_index".into(), Value::from(mode_idx as i64));
-                    let _ = settings::save_settings(&settings);
-                    mtime = settings::settings_mtime();
-                    state::log_line(&format!(
-                        "dial mode -> {}",
-                        modes.get(mode_idx).map(String::as_str).unwrap_or("mic")
-                    ));
+                match event.value {
+                    1 => gesture.press_down(),
+                    // The volume-mode cycle moved from press-down to
+                    // release: a press that twisted is a preset
+                    // switch, and only a plain tap still cycles. The
+                    // guard's press_up() runs exactly once per release
+                    // and resets the hold state either way.
+                    0 if gesture.press_up() == preset_gesture::Release::Tap && modes.len() > 1 => {
+                        mode_idx = (mode_idx + 1) % modes.len();
+                        let dial_obj = settings::ensure_object(&mut settings, "dial");
+                        dial_obj.insert("start_index".into(), Value::from(mode_idx as i64));
+                        let _ = settings::save_settings(&settings);
+                        mtime = settings::settings_mtime();
+                        state::log_line(&format!(
+                            "dial mode -> {}",
+                            modes.get(mode_idx).map(String::as_str).unwrap_or("mic")
+                        ));
+                    }
+                    // Guard failed: the release was a twist (or a
+                    // single-mode tap). The guard already consumed
+                    // it, so there is nothing left to do.
+                    0 => {}
+                    _ => {}
                 }
                 continue;
             }
@@ -447,6 +531,18 @@ fn monitor_loop() {
                     // The rotation is a written key assignment
                     // (K1-L / K1-R / K2-L / K2-R); it must not change
                     // the volume.
+                    continue;
+                }
+                if gesture.is_held() {
+                    // Hold-and-twist: step the preset instead of the
+                    // volume. The rotation is swallowed either way,
+                    // so a held twist never leaks volume changes.
+                    if let Some(preset) = gesture.rotate(event.value) {
+                        settings.insert("layer".into(), Value::from(preset));
+                        let _ = settings::save_settings(&settings);
+                        mtime = settings::settings_mtime();
+                        apply_preset_to_device(preset, &mut led_written, false, "hold-twist");
+                    }
                     continue;
                 }
                 let step = dial_step(&settings);

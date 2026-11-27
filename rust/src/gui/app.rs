@@ -1753,6 +1753,7 @@ impl App {
             }
         });
         ui.label(self.t("dial_press_note"));
+        ui.label(self.t("dial_preset_note"));
         ui.separator();
         let current = crate::resident::dial_modes(&self.settings);
         let mut modes = [

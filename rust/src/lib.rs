@@ -16,6 +16,7 @@ pub mod input;
 pub mod keys;
 pub mod pair_chord;
 pub mod paths;
+pub mod preset_gesture;
 pub mod protocol;
 pub mod resident;
 pub mod settings;
