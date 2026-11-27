@@ -107,20 +107,29 @@ pub fn assignment_from_value(value: &Value) -> Option<ButtonAssignment> {
         }
         "media" => {
             let name = obj.get("name")?.as_str()?;
-            keys::MEDIA_ACTIONS
-                .iter()
-                .any(|(n, _)| *n == name)
-                .then(|| ButtonAssignment::Media(name.to_string()))
+            canonical_action_name(keys::MEDIA_ACTIONS, name)
+                .map(|name| ButtonAssignment::Media(name.to_string()))
         }
         "mouse" => {
             let name = obj.get("name")?.as_str()?;
-            keys::MOUSE_ACTIONS
-                .iter()
-                .any(|(n, _)| *n == name)
-                .then(|| ButtonAssignment::Mouse(name.to_string()))
+            canonical_action_name(keys::MOUSE_ACTIONS, name)
+                .map(|name| ButtonAssignment::Mouse(name.to_string()))
         }
         _ => None,
     }
+}
+
+/// Resolve a stored media/mouse action name to the canonical
+/// internal name the encoder accepts. Files written by builds with
+/// the GUI display-name leak hold the display label ("Wheel Up")
+/// instead of the internal name ("wheel_up"); accept those too and
+/// normalize, so a config saved by such a build still restores.
+fn canonical_action_name<'a>(table: &[(&'a str, &'a str)], name: &str) -> Option<&'a str> {
+    table
+        .iter()
+        .find(|(n, _)| *n == name)
+        .or_else(|| table.iter().find(|(_, label)| *label == name))
+        .map(|(n, _)| *n)
 }
 
 /// Slots a button entry may target: KEY1..KEY6 plus the six knob
@@ -504,6 +513,41 @@ mod tests {
                 (2, 15, ButtonAssignment::Mouse("wheel_down".into())),
             ]
         );
+    }
+
+    #[test]
+    fn import_normalizes_display_labels_from_buggy_builds() {
+        // Configs recorded by builds with the GUI display-name leak
+        // hold labels like "Wheel Up" / "Play/Pause" in place of the
+        // internal action names. Import must accept and normalize
+        // them instead of skipping the entries as invalid.
+        let text = r#"{
+            "format": "t1-button-config",
+            "version": 1,
+            "buttons": {
+                "1": {
+                    "13": {"kind": "mouse", "name": "Wheel Up"},
+                    "3": {"kind": "media", "name": "Play/Pause"}
+                }
+            }
+        }"#;
+        let imported = parse_import(text).expect("import");
+        assert_eq!(imported.skipped_entries, 0);
+        let mut settings = Settings::new();
+        apply_import(&mut settings, &imported);
+        assert_eq!(
+            recorded(&settings),
+            vec![
+                (1, 3, ButtonAssignment::Media("play".into())),
+                (1, 13, ButtonAssignment::Mouse("wheel_up".into())),
+            ]
+        );
+        // Canonical names and unknown names behave as before.
+        assert_eq!(
+            canonical_action_name(keys::MOUSE_ACTIONS, "wheel_up"),
+            Some("wheel_up")
+        );
+        assert_eq!(canonical_action_name(keys::MOUSE_ACTIONS, "bogus"), None);
     }
 
     #[test]

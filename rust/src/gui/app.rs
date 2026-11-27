@@ -720,7 +720,10 @@ impl App {
         if !self.require_key() {
             return;
         }
-        let (label, action) = table[index];
+        let Some((action, label)) = named_write_parts(table, index) else {
+            self.toast = self.t("pick_function").to_string();
+            return;
+        };
         let key = self.selected.unwrap();
         let ok = if media {
             self.device.write_media(key, self.layer, action)
@@ -1991,6 +1994,19 @@ fn named_write_for_page(page: usize) -> (&'static [(&'static str, &'static str)]
     }
 }
 
+/// Split one row of a media/mouse action table into the value the
+/// device encoder needs and the label shown to the user. Rows are
+/// `(internal_name, display_label)` and the encoder
+/// (`protocol::media_bytes` / `protocol::mouse_payload`) accepts ONLY
+/// the internal name. `write_named` once destructured the row in the
+/// wrong order and handed the display label ("Wheel Up") to the
+/// encoder, so every media/mouse write through the Write button —
+/// knob slots included — failed with "unknown action" before any
+/// device traffic.
+fn named_write_parts<'a>(table: &'a [(&'a str, &'a str)], index: usize) -> Option<(&'a str, &'a str)> {
+    table.get(index).map(|(name, label)| (*name, *label))
+}
+
 fn load_tray_icon() -> Option<tray_icon::Icon> {
     let (rgba, w, h) = load_rgba(&icon_file("tray"))?;
     tray_icon::Icon::from_rgba(rgba, w, h).ok()
@@ -2027,5 +2043,43 @@ mod tests {
         let (table, media) = named_write_for_page(3);
         assert!(!media);
         assert_eq!(table, keys::MOUSE_ACTIONS);
+    }
+
+    #[test]
+    fn named_write_passes_the_internal_name_to_the_encoder() {
+        // Regression: `write_named` destructured a table row as
+        // `(label, action)`, so the encoder received the DISPLAY
+        // label ("Wheel Up") and every media/mouse write failed with
+        // "unknown action". Drive the exact accessor the GUI uses —
+        // not just the table's own name field — into the encoders.
+        for (index, (name, label)) in keys::MEDIA_ACTIONS.iter().enumerate() {
+            let (action, shown) = named_write_parts(keys::MEDIA_ACTIONS, index).unwrap();
+            assert_eq!(action, *name);
+            assert_eq!(shown, *label);
+            for report_id in [0u8, 1, 2, 3] {
+                assert!(
+                    crate::protocol::media_bytes(report_id, action).is_some(),
+                    "media action {action} must encode (report_id {report_id})"
+                );
+                assert!(
+                    crate::protocol::media_bytes(report_id, shown).is_none(),
+                    "display label {shown} must NOT reach the media encoder"
+                );
+            }
+        }
+        for (index, (name, label)) in keys::MOUSE_ACTIONS.iter().enumerate() {
+            let (action, shown) = named_write_parts(keys::MOUSE_ACTIONS, index).unwrap();
+            assert_eq!(action, *name);
+            assert_eq!(shown, *label);
+            assert!(
+                crate::protocol::mouse_payload(action).is_some(),
+                "mouse action {action} must encode"
+            );
+            assert!(
+                crate::protocol::mouse_payload(shown).is_none(),
+                "display label {shown} must NOT reach the mouse encoder"
+            );
+        }
+        assert!(named_write_parts(keys::MOUSE_ACTIONS, usize::MAX).is_none());
     }
 }
