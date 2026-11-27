@@ -236,9 +236,7 @@ impl T1Device {
     /// leaves one of these lines, so a reported failure can always be
     /// matched against the log afterwards.
     fn log_write_outcome(&self, op: &str, keynum: u8, layer: u8, ok: bool) {
-        state::log_line(&format!(
-            "write {op} keynum={keynum} layer={layer} ok={ok}"
-        ));
+        state::log_line(&format!("write {op} keynum={keynum} layer={layer} ok={ok}"));
     }
 
     fn run_write(&mut self, op: &str, keynum: u8, layer: u8, steps: &[WriteStep]) -> bool {

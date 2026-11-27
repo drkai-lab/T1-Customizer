@@ -2007,7 +2007,10 @@ fn named_write_for_page(page: usize) -> (&'static [(&'static str, &'static str)]
 /// encoder, so every media/mouse write through the Write button —
 /// knob slots included — failed with "unknown action" before any
 /// device traffic.
-fn named_write_parts<'a>(table: &'a [(&'a str, &'a str)], index: usize) -> Option<(&'a str, &'a str)> {
+fn named_write_parts<'a>(
+    table: &'a [(&'a str, &'a str)],
+    index: usize,
+) -> Option<(&'a str, &'a str)> {
     table.get(index).map(|(name, label)| (*name, *label))
 }
 
