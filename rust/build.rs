@@ -13,7 +13,7 @@ fn main() {
     res.set("ProductVersion", &version);
     res.set("ProductName", "T1-Customizer");
     res.set("FileDescription", "T1-Customizer");
-    res.set("CompanyName", "drkai-lab");
-    res.set("LegalCopyright", "MIT");
+    res.set("CompanyName", "AppWizz Kai");
+    res.set("LegalCopyright", "Copyright (c) 2026 AppWizz Kai");
     let _ = res.compile();
 }

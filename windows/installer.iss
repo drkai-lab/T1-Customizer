@@ -5,7 +5,7 @@
 #define AppName "T1-Customizer"
 #define AppNameJa "T1-Customizer"
 #define AppVersion "1.0.5"
-#define AppPublisher "drkai-lab"
+#define AppPublisher "AppWizz Kai"
 #define AppURL "https://github.com/drkai-lab/T1-Customizer"
 
 [Setup]
