@@ -1376,7 +1376,7 @@ impl App {
             ui.separator();
             self.show_tray_strip(ui);
             ui.label(
-                egui::RichText::new(format!("v{}", crate::VERSION))
+                egui::RichText::new(format!("v{} · © 2026 AppWizz Kai", crate::VERSION))
                     .small()
                     .weak(),
             );
