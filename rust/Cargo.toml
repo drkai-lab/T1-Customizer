@@ -1,6 +1,6 @@
 [package]
 name = "t1_keyboard_config"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2024"
 rust-version = "1.95"
 description = "T1-Customizer: free T1 mini keyboard configuration tool"
