@@ -4463,7 +4463,7 @@ dependencies = [
 
 [[package]]
 name = "t1_keyboard_config"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "clap",
  "core-foundation 0.10.1",
