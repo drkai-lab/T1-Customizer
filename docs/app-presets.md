@@ -2,13 +2,13 @@
 
 「キー」ページの **アプリプリセット** から、よく使うアプリの定番ショートカットを
 KEY1〜KEY6（現在のプリセット／レイヤー）に一括で書き込めます。書き込むのは通常の
-キー組み合わせ（修飾キー＋キー）で、修飾キーページで書くのと同じ内容です。
+キー組み合わせ（修飾キー＋キー）で、キー画面の修飾キー組み合わせで書くのと同じ内容です。
 書き込みには本体の接続が必要です。
 
 From **App presets** on the Keys page, one click writes a well-known app's
 default shortcuts to KEY1–KEY6 of the current preset (layer). What is written
-is a plain key combination (modifiers + key), the same bytes the Modifiers
-page writes. The keyboard must be connected.
+is a plain key combination (modifiers + key), the same bytes the modifier
+combination editor on the Keys page writes. The keyboard must be connected.
 
 ## Adobe Premiere 2026
 
@@ -98,11 +98,11 @@ knob pair is skipped and the app says so.
 
 プリセットが書き込むのは Windows 式の **Ctrl** です。macOS では Adobe の
 コマンドの多くが **Cmd** なので、Mac で使う場合は、書き込んだキーを
-修飾キーページで選び直し、Win（Cmd）キーで保存し直してください。
+キー画面の修飾キー組み合わせで選び直し、Win（Cmd）キーで保存し直してください。
 
 The presets write **Ctrl**, as on Windows. On macOS most Adobe commands use
-**Cmd** instead, so Mac users may re-save a written key with Win (Cmd) on
-the Modifiers page.
+**Cmd** instead, so Mac users may re-save a written key with Win (Cmd) in
+the modifier combination editor on the Keys page.
 
 ## バージョンについて / About versions
 
