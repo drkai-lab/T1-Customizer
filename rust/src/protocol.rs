@@ -133,6 +133,118 @@ pub fn probe_report() -> [u8; 2] {
     [0x00, 0x00]
 }
 
+/// Knob slots: K1-L/C/R and K2-L/C/R. On the wire they are ordinary
+/// key numbers in the same reports as KEY1..KEY12 — two independent
+/// reconstructions of the vendor app (the decompiled `MINI KeyBoard.exe`
+/// protocol and the RSoft MacroPad `MapToByte`, which maps its knob
+/// actions 23..=31 onto 13..=21) agree there is no separate knob command
+/// or address space.
+pub fn is_knob_slot(keynum: u8) -> bool {
+    (13..=18).contains(&keynum)
+}
+
+/// Pause after a normal frame, in milliseconds. The vendor-class tools
+/// pace their frames (the byte-verified macropad.py sleeps 10 ms after
+/// every frame, "give the MCU time to store to flash"); sending a whole
+/// write burst back-to-back can overrun the MCU while it is still
+/// committing the previous save to flash, and the frames it drops are
+/// silently lost — the host still sees a successful HID write.
+pub const FRAME_DELAY_MS: u64 = 10;
+
+/// Longer pause after a save/commit frame (`0xAA …`), which is what
+/// triggers the actual flash programming on the device.
+pub const SAVE_DELAY_MS: u64 = 60;
+
+/// How long to wait after sending `payload` before the next frame.
+pub fn frame_delay_after_ms(payload: &[u8]) -> u64 {
+    if payload.first() == Some(&0xAA) {
+        SAVE_DELAY_MS
+    } else {
+        FRAME_DELAY_MS
+    }
+}
+
+/// One payload of a device write, labelled with the stage it belongs to
+/// so a failure can be reported (and logged) precisely.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteStep {
+    pub stage: &'static str,
+    pub payload: Vec<u8>,
+}
+
+fn step(stage: &'static str, payload: &[u8]) -> WriteStep {
+    WriteStep {
+        stage,
+        payload: payload.to_vec(),
+    }
+}
+
+/// The full step sequence `write_key` sends: optional layer switch,
+/// group reports, save. Identical in shape for keys and knob slots;
+/// only byte 0 of the group reports differs.
+pub fn key_write_steps(
+    report_id: u8,
+    keynum: u8,
+    layer: u8,
+    keys: &[(u8, u8)],
+    lone_mod: u8,
+) -> Vec<WriteStep> {
+    let mut out = Vec::new();
+    if report_id != 0 {
+        out.push(step("layer", &layer_report(layer)));
+    }
+    for report in key_reports(keynum, layer, report_id, keys, lone_mod) {
+        out.push(step("key", &report));
+    }
+    out.push(step("save", &flash_report()));
+    out
+}
+
+/// The step sequence `write_media` sends.
+pub fn media_write_steps(
+    report_id: u8,
+    keynum: u8,
+    layer: u8,
+    action: &str,
+) -> Option<Vec<WriteStep>> {
+    let report = media_report(keynum, layer, report_id, action)?;
+    let mut out = Vec::new();
+    if report_id != 0 {
+        out.push(step("layer", &layer_report(layer)));
+    }
+    out.push(step("media", &report));
+    out.push(step("save", &flash_report()));
+    Some(out)
+}
+
+/// The step sequence `write_mouse` sends.
+pub fn mouse_write_steps(
+    report_id: u8,
+    keynum: u8,
+    layer: u8,
+    action: &str,
+) -> Option<Vec<WriteStep>> {
+    let report = mouse_report(keynum, layer, report_id, action)?;
+    let mut out = Vec::new();
+    if report_id != 0 {
+        out.push(step("layer", &layer_report(layer)));
+    }
+    out.push(step("mouse", &report));
+    out.push(step("save", &flash_report()));
+    Some(out)
+}
+
+/// The step sequence `write_led` sends.
+pub fn led_write_steps(layer: u8, report_id: u8, mode: u8) -> Vec<WriteStep> {
+    let mut out = Vec::new();
+    if report_id != 0 {
+        out.push(step("layer", &layer_report(layer)));
+    }
+    out.push(step("led", &led_report(layer, report_id, mode)));
+    out.push(step("save", &flash_led_report()));
+    out
+}
+
 /// Payloads `write_key` sends: optional layer switch, group reports, flash.
 pub fn write_key_payloads(
     report_id: u8,
@@ -283,6 +395,86 @@ mod tests {
             assert_eq!(report[0], keynum);
             assert_eq!(report[1] & 0x0F, TYPE_MEDIA);
         }
+    }
+
+    fn payloads(steps: &[WriteStep]) -> Vec<Vec<u8>> {
+        steps.iter().map(|s| s.payload.clone()).collect()
+    }
+
+    #[test]
+    fn knob_key_write_frames_match_key_frames_except_byte0() {
+        // K1-C (14) with a plain "A": layer switch, header report,
+        // key report, save — byte-for-byte.
+        let knob = payloads(&key_write_steps(3, 14, 1, &[(0, 0x04)], 0));
+        assert_eq!(
+            knob,
+            vec![
+                vec![0xA1, 1],
+                vec![14, 0x11, 1, 0, 0, 0],
+                vec![14, 0x11, 1, 1, 0, 0x04],
+                vec![0xAA, 0xAA],
+            ]
+        );
+        // KEY1 with the same combo is the identical sequence with
+        // byte 0 = 1 in the two key reports: there is no separate
+        // knob command or address space.
+        let key = payloads(&key_write_steps(3, 1, 1, &[(0, 0x04)], 0));
+        assert_eq!(key.len(), knob.len());
+        for (k, n) in key.iter().zip(knob.iter()) {
+            assert_eq!(k.len(), n.len());
+            for (i, (kb, nb)) in k.iter().zip(n.iter()).enumerate() {
+                if i == 0 && (k[0] == 1 || k[0] == 14) && k.len() > 2 {
+                    assert_eq!(*kb, 1);
+                    assert_eq!(*nb, 14);
+                } else {
+                    assert_eq!(kb, nb, "frame byte {i}");
+                }
+            }
+        }
+        // Stages are labelled for failure reporting.
+        let stages: Vec<&str> = key_write_steps(3, 14, 1, &[(0, 0x04)], 0)
+            .iter()
+            .map(|s| s.stage)
+            .collect();
+        assert_eq!(stages, ["layer", "key", "key", "save"]);
+    }
+
+    #[test]
+    fn knob_media_and_mouse_write_frames() {
+        // K1-L (13) volume up (report-id-3 consumer code 233).
+        let media = payloads(&media_write_steps(3, 13, 1, "vol_up").unwrap());
+        assert_eq!(
+            media,
+            vec![vec![0xA1, 1], vec![13, 0x12, 233, 0], vec![0xAA, 0xAA]]
+        );
+        // K1-R (15) mouse left click.
+        let mouse = payloads(&mouse_write_steps(3, 15, 1, "left").unwrap());
+        assert_eq!(
+            mouse,
+            vec![
+                vec![0xA1, 1],
+                vec![15, 0x13, 1, 0, 0, 0, 0],
+                vec![0xAA, 0xAA]
+            ]
+        );
+        // Every knob slot is recognised, and no plain key is.
+        for keynum in 13..=18u8 {
+            assert!(is_knob_slot(keynum), "slot {keynum}");
+        }
+        for keynum in [1u8, 6, 7, 12, 19] {
+            assert!(!is_knob_slot(keynum), "slot {keynum}");
+        }
+    }
+
+    #[test]
+    fn frame_pacing_waits_longer_after_a_save() {
+        assert_eq!(frame_delay_after_ms(&flash_report()), SAVE_DELAY_MS);
+        assert_eq!(frame_delay_after_ms(&flash_led_report()), SAVE_DELAY_MS);
+        assert_eq!(frame_delay_after_ms(&layer_report(1)), FRAME_DELAY_MS);
+        assert_eq!(
+            frame_delay_after_ms(&key_reports(14, 1, 3, &[(0, 0x04)], 0)[0]),
+            FRAME_DELAY_MS
+        );
     }
 
     #[test]

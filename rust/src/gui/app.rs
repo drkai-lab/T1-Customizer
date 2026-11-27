@@ -636,7 +636,8 @@ impl App {
             self.status = line.clone();
             self.toast = line;
         } else {
-            self.note_result(self.t("download_ng").to_string(), false);
+            let line = self.ng_line();
+            self.note_result(line, false);
         }
     }
 
@@ -786,10 +787,21 @@ impl App {
         self.save();
     }
 
+    /// The write-failure line, with the device's recorded failure
+    /// detail (operation, stage, transport error) appended when there
+    /// is one — a bare "failed" gives the user nothing to report.
+    fn ng_line(&mut self) -> String {
+        match self.device.last_failure() {
+            Some(detail) => format!("{} ({detail})", self.t("download_ng")),
+            None => self.t("download_ng").to_string(),
+        }
+    }
+
     fn finish_key_write(&mut self, key: u8, label: &str, written: Written, ok: bool) {
         let target = format!("KEY{key}");
         if !ok {
-            self.note_result(self.t("download_ng").to_string(), false);
+            let line = self.ng_line();
+            self.note_result(line, false);
             return;
         }
         let prev = self.last_written.get(&(self.layer, key)).cloned();

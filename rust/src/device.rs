@@ -2,8 +2,9 @@
 //! The platform send path lives in `transport`.
 
 use crate::protocol::{
-    DEFAULT_DATA_LEN, flash_led_report, flash_report, frame, key_reports, layer_report, led_report,
-    media_report, mouse_report, probe_candidates, probe_report,
+    DEFAULT_DATA_LEN, WriteStep, frame, frame_delay_after_ms, is_knob_slot, key_write_steps,
+    layer_report, led_write_steps, media_write_steps, mouse_write_steps, probe_candidates,
+    probe_report,
 };
 use crate::state;
 use crate::transport::{DynTransport, make_transport};
@@ -27,6 +28,7 @@ pub struct T1Device {
     pub had_report_id: bool,
     fail_count: u32,
     logged: Option<String>,
+    last_failure: Option<String>,
     transport: Box<dyn DynTransport>,
 }
 
@@ -38,12 +40,21 @@ impl T1Device {
             had_report_id: true,
             fail_count: 0,
             logged: None,
+            last_failure: None,
             transport: make_transport(),
         }
     }
 
     pub fn last_error(&self) -> Option<String> {
         self.transport.last_error()
+    }
+
+    /// Detail of the most recent failed write: which operation and
+    /// stage failed, plus the transport's error when it has one. The
+    /// GUI appends this to the failure toast so a failed write on real
+    /// hardware produces actionable data instead of a bare "failed".
+    pub fn last_failure(&self) -> Option<String> {
+        self.last_failure.clone()
     }
 
     pub fn node(&self) -> Option<String> {
@@ -160,50 +171,108 @@ impl T1Device {
         true
     }
 
+    /// Send one step of a write sequence. On success the next frame is
+    /// paced with `frame_delay_after_ms` (the MCU needs time to commit
+    /// saves to flash; an unpaced burst can silently lose frames). On
+    /// failure the operation, stage and transport error are recorded
+    /// in `last_failure` and written to the app log.
+    fn write_step(&mut self, op: &str, stage: &str, payload: &[u8]) -> bool {
+        if self.write_payload(payload) {
+            let delay = frame_delay_after_ms(payload);
+            if delay > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+            return true;
+        }
+        let detail = self
+            .transport
+            .last_error()
+            .unwrap_or_else(|| "send-failed".into());
+        let message = format!("{op} stage={stage}: {detail}");
+        self.last_failure = Some(message.clone());
+        state::log_line(&format!("write failed: {message}"));
+        false
+    }
+
+    /// Run a whole write sequence, stopping at the first failed step.
+    fn run_steps(&mut self, op: &str, steps: &[WriteStep]) -> bool {
+        let total = steps.len();
+        for (index, step) in steps.iter().enumerate() {
+            let stage = format!("{} {}/{}", step.stage, index + 1, total);
+            if !self.write_step(op, &stage, &step.payload) {
+                return false;
+            }
+        }
+        self.last_failure = None;
+        true
+    }
+
+    /// Log the exact frames of a knob-slot write (and its outcome) so a
+    /// real-hardware failure leaves actionable data in the app log.
+    fn log_knob_write(&self, op: &str, keynum: u8, layer: u8, steps: &[WriteStep], ok: bool) {
+        let frames = steps
+            .iter()
+            .map(|s| {
+                s.payload
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        state::log_line(&format!(
+            "knob write {op} keynum={keynum} layer={layer} report_id={} ok={ok} frames: {frames}",
+            self.report_id
+        ));
+    }
+
+    /// Knob-slot writes get one full retry: the assignment is
+    /// idempotent, and a retry distinguishes a transient frame loss
+    /// from a slot the firmware genuinely refuses.
+    fn run_write(&mut self, op: &str, keynum: u8, layer: u8, steps: &[WriteStep]) -> bool {
+        let knob = is_knob_slot(keynum);
+        let ok = self.run_steps(op, steps);
+        if knob {
+            self.log_knob_write(op, keynum, layer, steps, ok);
+        }
+        if !ok && knob && self.is_open() {
+            state::log_line(&format!("knob write {op} keynum={keynum}: retrying once"));
+            let retry_ok = self.run_steps(op, steps);
+            self.log_knob_write(op, keynum, layer, steps, retry_ok);
+            return retry_ok;
+        }
+        ok
+    }
+
     pub fn switch_layer(&mut self, layer: u8) -> bool {
-        self.write_payload(&layer_report(layer))
+        self.write_step("switch_layer", "layer", &layer_report(layer))
     }
 
     pub fn write_key(&mut self, keynum: u8, layer: u8, keys: &[(u8, u8)], lone_mod: u8) -> bool {
-        if self.report_id != 0 && !self.switch_layer(layer) {
-            return false;
-        }
-        let reports: Vec<Vec<u8>> = key_reports(keynum, layer, self.report_id, keys, lone_mod)
-            .into_iter()
-            .map(|row| row.to_vec())
-            .collect();
-        if !self.write_many(&reports) {
-            return false;
-        }
-        self.write_payload(&flash_report())
+        let steps = key_write_steps(self.report_id, keynum, layer, keys, lone_mod);
+        self.run_write("write_key", keynum, layer, &steps)
     }
 
     pub fn write_media(&mut self, keynum: u8, layer: u8, action: &str) -> bool {
-        let Some(report) = media_report(keynum, layer, self.report_id, action) else {
+        let Some(steps) = media_write_steps(self.report_id, keynum, layer, action) else {
+            self.last_failure = Some(format!("write_media: unknown action {action}"));
             return false;
         };
-        if self.report_id != 0 && !self.switch_layer(layer) {
-            return false;
-        }
-        self.write_payload(&report) && self.write_payload(&flash_report())
+        self.run_write("write_media", keynum, layer, &steps)
     }
 
     pub fn write_mouse(&mut self, keynum: u8, layer: u8, action: &str) -> bool {
-        let Some(report) = mouse_report(keynum, layer, self.report_id, action) else {
+        let Some(steps) = mouse_write_steps(self.report_id, keynum, layer, action) else {
+            self.last_failure = Some(format!("write_mouse: unknown action {action}"));
             return false;
         };
-        if self.report_id != 0 && !self.switch_layer(layer) {
-            return false;
-        }
-        self.write_payload(&report) && self.write_payload(&flash_report())
+        self.run_write("write_mouse", keynum, layer, &steps)
     }
 
     pub fn write_led(&mut self, layer: u8, mode: u8) -> bool {
-        if self.report_id != 0 && !self.switch_layer(layer) {
-            return false;
-        }
-        self.write_payload(&led_report(layer, self.report_id, mode))
-            && self.write_payload(&flash_led_report())
+        let steps = led_write_steps(layer, self.report_id, mode);
+        self.run_steps("write_led", &steps)
     }
 }
 
