@@ -221,9 +221,47 @@ pub const JIS_LABELS: &[(&str, u8)] = &[
     ("半角/全角", 53),
 ];
 
+/// Keys that exist only on Japanese keyboards (HID usages 0x87–0x8B:
+/// the 国際/International 1–5 usages). They are not in `USAGE_KEYS`
+/// because they have no US meaning — the pickers list them under the
+/// JIS layout only (see [`picker_keys`]). Their labels still resolve
+/// under either layout, so a description recorded in JIS mode keeps
+/// displaying after a switch to US. LANG1/LANG2 (0x90/0x91) are
+/// deliberately absent: on the Windows JIS layout this selector
+/// models, the kana keys are the ones below; LANG1/LANG2 are the
+/// macOS JIS かな/英数 keys with no physical counterpart here.
+pub const JIS_ONLY_KEYS: &[(&str, u8)] = &[
+    ("ろ", 0x87),
+    ("カタカナ/ひらがな", 0x88),
+    ("¥", 0x89),
+    ("変換", 0x8A),
+    ("無変換", 0x8B),
+];
+
+/// True for usages that exist only on Japanese keyboards.
+pub fn is_jis_only_usage(usage: u8) -> bool {
+    JIS_ONLY_KEYS.iter().any(|(_, code)| *code == usage)
+}
+
+/// (label, usage) pairs the key pickers show under `layout`: every
+/// `USAGE_KEYS` entry with its layout label, plus — under JIS only —
+/// the JIS-only keys appended after them, so an index into the shared
+/// part of the list means the same key in both layouts.
+pub fn picker_keys(layout: KeyLayout) -> Vec<(&'static str, u8)> {
+    let mut out: Vec<(&'static str, u8)> = USAGE_KEYS
+        .iter()
+        .map(|(_, usage)| (label_for_usage_layout(*usage, layout).unwrap_or(""), *usage))
+        .collect();
+    if layout == KeyLayout::Jis {
+        out.extend_from_slice(JIS_ONLY_KEYS);
+    }
+    out
+}
+
 pub fn usage_for_label(label: &str) -> u8 {
     USAGE_KEYS
         .iter()
+        .chain(JIS_ONLY_KEYS.iter())
         .find(|(name, _)| *name == label)
         .map(|(_, code)| *code)
         .unwrap_or(0)
@@ -231,11 +269,12 @@ pub fn usage_for_label(label: &str) -> u8 {
 
 /// Resolve a displayed label under `layout`. Falls back to the other
 /// layout's labels so a label picked before a layout switch (e.g. the
-/// combo editor's staged base key) still resolves to its usage.
+/// combo editor's staged base key) still resolves to its usage. The
+/// JIS-only labels resolve under both layouts.
 pub fn usage_for_label_layout(label: &str, layout: KeyLayout) -> u8 {
-    let tables: [&[(&str, u8)]; 2] = match layout {
-        KeyLayout::Jis => [JIS_LABELS, USAGE_KEYS],
-        KeyLayout::Us => [USAGE_KEYS, JIS_LABELS],
+    let tables: [&[(&str, u8)]; 3] = match layout {
+        KeyLayout::Jis => [JIS_LABELS, USAGE_KEYS, JIS_ONLY_KEYS],
+        KeyLayout::Us => [USAGE_KEYS, JIS_LABELS, JIS_ONLY_KEYS],
     };
     for table in tables {
         if let Some((_, code)) = table.iter().find(|(name, _)| *name == label) {
@@ -248,6 +287,7 @@ pub fn usage_for_label_layout(label: &str, layout: KeyLayout) -> u8 {
 pub fn label_for_usage(usage: u8) -> Option<&'static str> {
     USAGE_KEYS
         .iter()
+        .chain(JIS_ONLY_KEYS.iter())
         .find(|(_, code)| *code == usage)
         .map(|(name, _)| *name)
 }
@@ -562,6 +602,68 @@ mod tests {
         for layout in [KeyLayout::Jis, KeyLayout::Us] {
             assert_eq!(KeyLayout::from_setting(Some(layout.setting())), layout);
         }
+    }
+
+    #[test]
+    fn jis_only_keys_resolve_in_both_layouts() {
+        let cases: [(&str, u8); 5] = [
+            ("ろ", 0x87),
+            ("カタカナ/ひらがな", 0x88),
+            ("¥", 0x89),
+            ("変換", 0x8A),
+            ("無変換", 0x8B),
+        ];
+        for (label, usage) in cases {
+            assert!(is_jis_only_usage(usage));
+            assert_eq!(label_for_usage(usage), Some(label));
+            assert_eq!(usage_for_label(label), usage);
+            // Labels resolve under either layout, so a description
+            // recorded in JIS mode still displays in US mode.
+            for layout in [KeyLayout::Jis, KeyLayout::Us] {
+                assert_eq!(label_for_usage_layout(usage, layout), Some(label));
+                assert_eq!(usage_for_label_layout(label, layout), usage);
+            }
+        }
+        assert!(!is_jis_only_usage(0x04));
+        assert!(!is_jis_only_usage(0x90));
+    }
+
+    #[test]
+    fn picker_keys_visibility_follows_the_layout() {
+        let jis = picker_keys(KeyLayout::Jis);
+        let us = picker_keys(KeyLayout::Us);
+        assert_eq!(jis.len(), USAGE_KEYS.len() + JIS_ONLY_KEYS.len());
+        assert_eq!(us.len(), USAGE_KEYS.len());
+        // The shared part is index-aligned across layouts.
+        for (index, (_, usage)) in USAGE_KEYS.iter().enumerate() {
+            assert_eq!(jis[index].1, *usage);
+            assert_eq!(us[index].1, *usage);
+        }
+        // JIS-only keys are appended under JIS and absent under US.
+        for (label, usage) in JIS_ONLY_KEYS {
+            assert!(jis.contains(&(*label, *usage)));
+            assert!(us.iter().all(|(_, code)| code != usage));
+        }
+        // Labels in the picker are the layout labels.
+        assert_eq!(jis[25].0, "Z");
+        let caret = USAGE_KEYS.iter().position(|(_, u)| *u == 46).unwrap();
+        assert_eq!(jis[caret].0, "^");
+        assert_eq!(us[caret].0, "=");
+    }
+
+    #[test]
+    fn describe_jis_only_plain_and_in_combo() {
+        // 変換 as a plain key and inside a modifier combo, in both
+        // layouts (the US side resolves through the fallback).
+        for layout in [KeyLayout::Jis, KeyLayout::Us] {
+            assert_eq!(describe_key_combo_layout(&[(0, 0x8A)], 0, layout), "変換");
+            assert_eq!(describe_mod_usage_layout(0x01, 0x8A, layout), "Ctrl+変換");
+            assert_eq!(
+                describe_key_combo_layout(&[(0x01, 0x8A), (0, 0x87)], 0, layout),
+                "Ctrl+変換 / ろ"
+            );
+        }
+        assert_eq!(describe_key_combo(&[(0, 0x8B)], 0), "無変換");
     }
 
     #[test]

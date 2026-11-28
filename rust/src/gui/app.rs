@@ -14,7 +14,7 @@ use crate::device::{DeviceError, T1Device};
 use crate::edition;
 use crate::gui::fonts;
 use crate::gui::i18n::{self, tr};
-use crate::keys::{self, AppendStatus, MODIFIERS, PHYS_KEYS, T1_KEY_COUNT, USAGE_KEYS};
+use crate::keys::{self, AppendStatus, MODIFIERS, PHYS_KEYS, T1_KEY_COUNT};
 use crate::pair_chord;
 use crate::paths;
 use crate::resident;
@@ -260,12 +260,24 @@ impl App {
             return;
         }
         let staged = keys::usage_for_label_layout(&self.base_label, self.key_layout);
+        let selected_usage = self.key_sel.and_then(|index| {
+            keys::picker_keys(self.key_layout)
+                .get(index)
+                .map(|(_, usage)| *usage)
+        });
         self.key_layout = layout;
         if staged != 0
             && let Some(label) = keys::label_for_usage_layout(staged, layout)
         {
             self.base_label = label.to_string();
         }
+        // Keep the Keys-page selection on the same usage. A JIS-only
+        // key has no entry under US, so the selection clears there.
+        self.key_sel = selected_usage.and_then(|usage| {
+            keys::picker_keys(layout)
+                .iter()
+                .position(|(_, candidate)| *candidate == usage)
+        });
         self.settings
             .insert("key_layout".into(), json!(layout.setting()));
         self.save();
@@ -345,7 +357,10 @@ impl App {
             self.toast = self.t("pick_function").to_string();
             return;
         };
-        let (_, usage) = USAGE_KEYS[index];
+        let Some((_, usage)) = keys::picker_keys(self.key_layout).get(index).copied() else {
+            self.toast = self.t("pick_function").to_string();
+            return;
+        };
         let label = keys::label_for_usage_layout(usage, self.key_layout).unwrap_or("");
         if let Some(pair) = self.pair_sel {
             // A pair is selected: the write assigns the pair in
@@ -420,11 +435,9 @@ impl App {
         ui.add_space(4.0);
         self.page_list(
             ui,
-            USAGE_KEYS
+            keys::picker_keys(self.key_layout)
                 .iter()
-                .map(|(_, usage)| {
-                    keys::label_for_usage_layout(*usage, self.key_layout).unwrap_or("")
-                })
+                .map(|(label, _)| *label)
                 .collect(),
             true,
         );
@@ -1449,15 +1462,19 @@ impl App {
     fn write_offer(&self) -> (String, String, bool) {
         match self.page {
             0 => {
+                // The picked key's label under the current layout; a
+                // stale index (e.g. past a layout switch) yields None.
+                let picked_label = self.key_sel.and_then(|index| {
+                    keys::picker_keys(self.key_layout)
+                        .get(index)
+                        .and_then(|(_, usage)| {
+                            keys::label_for_usage_layout(*usage, self.key_layout)
+                        })
+                });
                 if let Some(pair) = self.pair_sel {
-                    return match self.key_sel {
-                        Some(index) => (
-                            i18n::write_button(
-                                &self.lang,
-                                &Self::pair_label(pair),
-                                keys::label_for_usage_layout(USAGE_KEYS[index].1, self.key_layout)
-                                    .unwrap_or(""),
-                            ),
+                    return match picked_label {
+                        Some(label) => (
+                            i18n::write_button(&self.lang, &Self::pair_label(pair), label),
                             String::new(),
                             true,
                         ),
@@ -1468,14 +1485,9 @@ impl App {
                         ),
                     };
                 }
-                match (self.selected, self.key_sel) {
-                    (Some(key), Some(index)) => (
-                        i18n::write_button(
-                            &self.lang,
-                            &format!("KEY{key}"),
-                            keys::label_for_usage_layout(USAGE_KEYS[index].1, self.key_layout)
-                                .unwrap_or(""),
-                        ),
+                match (self.selected, picked_label) {
+                    (Some(key), Some(label)) => (
+                        i18n::write_button(&self.lang, &format!("KEY{key}"), label),
                         String::new(),
                         true,
                     ),
@@ -1639,8 +1651,7 @@ impl App {
                 let only_label = self.t("mod_only");
                 let only = only_label.to_string();
                 ui.selectable_value(&mut self.base_label, only, only_label);
-                for (_, usage) in USAGE_KEYS {
-                    let name = keys::label_for_usage_layout(*usage, self.key_layout).unwrap_or("");
+                for (name, _) in keys::picker_keys(self.key_layout) {
                     ui.selectable_value(&mut self.base_label, name.to_string(), name);
                 }
             });

@@ -165,6 +165,13 @@ pub fn hid_usage_to_evdev() -> HashMap<u16, u16> {
         (0x43, 68),
         (0x44, 87),
         (0x45, 88),
+        // JIS-only keys (Linux input-event-codes.h): KEY_RO,
+        // KEY_KATAKANAHIRAGANA, KEY_YEN, KEY_HENKAN, KEY_MUHENKAN.
+        (0x87, 89),
+        (0x88, 93),
+        (0x89, 124),
+        (0x8A, 92),
+        (0x8B, 94),
     ] {
         table.insert(usage, code);
     }

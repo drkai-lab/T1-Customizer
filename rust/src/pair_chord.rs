@@ -715,4 +715,24 @@ mod tests {
         assert_eq!(vk_codes(SINGLE_A), vec![0xA2, 0x41]);
         assert_eq!(evdev_codes(Combo::default()), Vec::<u16>::new());
     }
+
+    #[test]
+    fn jis_only_usages_have_evdev_codes() {
+        // A pair combo whose usage is a JIS-only key re-emits on
+        // Linux: 変換 (0x8A) is KEY_HENKAN (92), with Ctrl first.
+        let henkan = Combo {
+            mods: 0,
+            usage: 0x8A,
+        };
+        assert_eq!(evdev_codes(henkan), vec![92]);
+        let ctrl_henkan = Combo {
+            mods: 0x01,
+            usage: 0x8A,
+        };
+        assert_eq!(evdev_codes(ctrl_henkan), vec![29, 92]);
+        for usage in 0x87..=0x8Bu8 {
+            let combo = Combo { mods: 0, usage };
+            assert_eq!(evdev_codes(combo).len(), 1, "usage {usage:#x}");
+        }
+    }
 }

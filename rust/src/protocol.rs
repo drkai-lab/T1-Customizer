@@ -501,6 +501,22 @@ mod tests {
     }
 
     #[test]
+    fn key_reports_carry_jis_only_usages_verbatim() {
+        // JIS-only usages (0x87–0x8B) travel in the same single usage
+        // byte as every other key; the encoder must not mask or
+        // reject them. 変換 (0x8A) as a plain key and inside a combo:
+        let reports = key_reports(1, 1, 0, &[(0, 0x8A)], 0);
+        assert_eq!(reports[1], [1, TYPE_KEY, 1, 1, 0, 0x8A]);
+        let reports = key_reports(1, 1, 0, &[(0x01, 0x8A), (0, 0x87)], 0);
+        assert_eq!(reports[1], [1, TYPE_KEY, 2, 1, 0x01, 0x8A]);
+        assert_eq!(reports[2], [1, TYPE_KEY, 2, 2, 0, 0x87]);
+        for usage in 0x87..=0x8Bu8 {
+            let reports = key_reports(6, 3, 3, &[(0, usage)], 0);
+            assert_eq!(reports[1][5], usage, "usage {usage:#x}");
+        }
+    }
+
+    #[test]
     fn frame_pacing_waits_longer_after_a_save() {
         assert_eq!(frame_delay_after_ms(&flash_report()), SAVE_DELAY_MS);
         assert_eq!(frame_delay_after_ms(&flash_led_report()), SAVE_DELAY_MS);
