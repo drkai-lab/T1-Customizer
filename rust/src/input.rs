@@ -705,6 +705,9 @@ static PAIR_HOOK_HANDLE: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
 struct PairHookState {
     engine: Option<crate::pair_chord::PairChordEngine>,
     generation: u64,
+    /// The config summary last written to the app log, so a reload
+    /// that changes nothing pair-related stays quiet.
+    logged_summary: Option<String>,
     lctrl: bool,
     lshift: bool,
     /// Sentinel F-keys currently down, by key number 1..=6. An F-key up
@@ -723,6 +726,7 @@ impl PairHookState {
         Self {
             engine: None,
             generation: 0,
+            logged_summary: None,
             lctrl: false,
             lshift: false,
             sentinel_down: [false; 7],
@@ -759,11 +763,57 @@ impl PairHookState {
             self.execute(actions);
         }
         self.sentinel_down = [false; 7];
+        let summary = crate::resident::chords_summary(&cfg);
         self.engine = if cfg.enabled {
             Some(crate::pair_chord::PairChordEngine::new(cfg))
         } else {
             None
         };
+        if self.logged_summary.as_deref() != Some(summary.as_str()) {
+            state::log_line(&format!("pair chords: hook config {summary}"));
+            self.logged_summary = Some(summary);
+        }
+    }
+
+    /// Feed a sentinel press into the engine. A press that produces
+    /// an injection while another key was still held is a pair fire;
+    /// log it, because "the pair never fired" vs "the resident never
+    /// saw the sentinel" is exactly what the app log must separate.
+    fn feed_down(&mut self, key: u8, now: u64) -> Vec<crate::pair_chord::Action> {
+        let had_held = self
+            .engine
+            .as_ref()
+            .is_some_and(|e| e.next_deadline().is_some());
+        let actions = self
+            .engine
+            .as_mut()
+            .map(|e| e.key_down(key, now))
+            .unwrap_or_default();
+        if had_held
+            && actions
+                .iter()
+                .any(|a| matches!(a, crate::pair_chord::Action::InjectDown(_)))
+        {
+            state::log_line("pair chords: pair fired");
+        }
+        actions
+    }
+
+    /// Feed a sentinel release into the engine; an injection here is
+    /// a tap (the single replayed on release, before the interval).
+    fn feed_up(&mut self, key: u8, now: u64) -> Vec<crate::pair_chord::Action> {
+        let actions = self
+            .engine
+            .as_mut()
+            .map(|e| e.key_up(key, now))
+            .unwrap_or_default();
+        if actions
+            .iter()
+            .any(|a| matches!(a, crate::pair_chord::Action::InjectDown(_)))
+        {
+            state::log_line("pair chords: single replayed (tap)");
+        }
+        actions
     }
 
     fn execute(&mut self, actions: Vec<crate::pair_chord::Action>) {
@@ -890,22 +940,14 @@ unsafe extern "system" fn pair_ll_keyboard(
                     }
                     state.sentinel_down[keynum] = false;
                     let now = state.now(tick);
-                    let actions = state
-                        .engine
-                        .as_mut()
-                        .map(|e| e.key_up(keynum as u8, now))
-                        .unwrap_or_default();
+                    let actions = state.feed_up(keynum as u8, now);
                     state.execute(actions);
                     return true;
                 }
                 if state.sentinel_down[keynum] {
                     // A repeat of a sentinel already counted as down.
                     let now = state.now(tick);
-                    let actions = state
-                        .engine
-                        .as_mut()
-                        .map(|e| e.key_down(keynum as u8, now))
-                        .unwrap_or_default();
+                    let actions = state.feed_down(keynum as u8, now);
                     state.execute(actions);
                     return true;
                 }
@@ -913,12 +955,9 @@ unsafe extern "system" fn pair_ll_keyboard(
                     return false;
                 }
                 state.sentinel_down[keynum] = true;
+                state::log_line(&format!("pair chords: sentinel KEY{keynum} down"));
                 let now = state.now(tick);
-                let actions = state
-                    .engine
-                    .as_mut()
-                    .map(|e| e.key_down(keynum as u8, now))
-                    .unwrap_or_default();
+                let actions = state.feed_down(keynum as u8, now);
                 state.execute(actions);
                 true
             });
@@ -947,6 +986,7 @@ fn pair_hook_loop() {
             return;
         };
         PAIR_HOOK_HANDLE.store(hook.0, std::sync::atomic::Ordering::Relaxed);
+        state::log_line("pair chords: Windows keyboard hook installed");
         // The timer drives the engine's hold deadlines.
         SetTimer(None, 1, 10, None);
         let mut msg = MSG::default();
@@ -966,6 +1006,12 @@ fn pair_hook_loop() {
                             .as_mut()
                             .map(|e| e.tick(now))
                             .unwrap_or_default();
+                        if actions
+                            .iter()
+                            .any(|a| matches!(a, crate::pair_chord::Action::InjectDown(_)))
+                        {
+                            state::log_line("pair chords: single replayed (interval expired)");
+                        }
                         state.execute(actions);
                     }
                 });

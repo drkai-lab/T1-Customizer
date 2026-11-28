@@ -198,13 +198,28 @@ impl ChordPump {
                     1 if self.sentinel_down[keynum] => return, // duplicate
                     1 if self.lctrl && self.lshift => {
                         self.sentinel_down[keynum] = true;
+                        state::log_line(&format!("pair chords: sentinel KEY{keynum} down"));
+                        let had_held = self.engine.next_deadline().is_some();
                         let actions = self.engine.key_down(keynum as u8, self.now());
+                        if had_held
+                            && actions
+                                .iter()
+                                .any(|a| matches!(a, pair_chord::Action::InjectDown(_)))
+                        {
+                            state::log_line("pair chords: pair fired");
+                        }
                         self.execute(actions);
                         return;
                     }
                     0 if self.sentinel_down[keynum] => {
                         self.sentinel_down[keynum] = false;
                         let actions = self.engine.key_up(keynum as u8, self.now());
+                        if actions
+                            .iter()
+                            .any(|a| matches!(a, pair_chord::Action::InjectDown(_)))
+                        {
+                            state::log_line("pair chords: single replayed (tap)");
+                        }
                         self.execute(actions);
                         return;
                     }
@@ -243,6 +258,12 @@ impl ChordPump {
             self.handle_raw(ev, &mut out);
         }
         let actions = self.engine.tick(self.now());
+        if actions
+            .iter()
+            .any(|a| matches!(a, pair_chord::Action::InjectDown(_)))
+        {
+            state::log_line("pair chords: single replayed (interval expired)");
+        }
         self.execute(actions);
         out
     }
@@ -395,6 +416,21 @@ fn dial_step(settings: &Settings) -> f64 {
         .unwrap_or(0.05)
 }
 
+/// One-line summary of the pair-chord config the resident is running
+/// with. Logged at monitor start and whenever a settings reload
+/// changes it, so a "pair chords do not work" report can be checked
+/// against what the resident actually loaded (a GUI-side toggle the
+/// resident never picked up is invisible without this).
+pub fn chords_summary(cfg: &pair_chord::PairChordConfig) -> String {
+    format!(
+        "enabled={} interval_ms={} pairs={} singles={}",
+        cfg.enabled,
+        cfg.interval_ms,
+        cfg.pairs.len(),
+        cfg.singles.len()
+    )
+}
+
 pub fn run_monitor() -> i32 {
     let Some(_lock) = state::acquire_resident_lock() else {
         return 0;
@@ -483,6 +519,8 @@ fn monitor_loop() {
         &mut chord_cfg,
         &mut gesture,
     );
+    let mut last_chords_summary = chords_summary(&chord_cfg);
+    state::log_line(&format!("pair chords: {last_chords_summary}"));
     // Sync the device with the persisted preset once at startup:
     // active layer plus that layer's LED effect, so the pad and the
     // app agree even if the pad was power-cycled or used elsewhere.
@@ -552,6 +590,11 @@ fn monitor_loop() {
                 &mut chord_cfg,
                 &mut gesture,
             );
+            let summary = chords_summary(&chord_cfg);
+            if summary != last_chords_summary {
+                last_chords_summary = summary;
+                state::log_line(&format!("pair chords: {last_chords_summary}"));
+            }
             // A config swap under a running pump: restart it so the new
             // pairs/singles apply (shutdown releases injected keys).
             #[cfg(target_os = "linux")]
@@ -911,6 +954,27 @@ mod tests {
     #[test]
     fn press_action_key_only_for_key() {
         assert_eq!(press_action(&settings_with(Some("key"))), PressAction::Key);
+    }
+
+    #[test]
+    fn chords_summary_reports_the_loaded_config() {
+        let mut cfg = pair_chord::PairChordConfig::default();
+        assert_eq!(
+            chords_summary(&cfg),
+            "enabled=false interval_ms=100 pairs=0 singles=0"
+        );
+        cfg.enabled = true;
+        cfg.interval_ms = 150;
+        cfg.pairs
+            .insert((1, 2), pair_chord::Combo { mods: 1, usage: 6 });
+        cfg.singles
+            .insert(1, pair_chord::Combo { mods: 0, usage: 4 });
+        cfg.singles
+            .insert(2, pair_chord::Combo { mods: 0, usage: 5 });
+        assert_eq!(
+            chords_summary(&cfg),
+            "enabled=true interval_ms=150 pairs=1 singles=2"
+        );
     }
 
     #[test]

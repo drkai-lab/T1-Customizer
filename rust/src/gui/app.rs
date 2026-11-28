@@ -463,11 +463,14 @@ impl App {
         let cfg = pair_chord::PairChordConfig::from_settings(&self.settings);
         let mut missing = Vec::new();
         let mut pending = false;
+        let mut burn_failed = false;
         for key in [a, b] {
             match cfg.single(key) {
                 Some(_) => {
                     if self.device.is_open() {
-                        self.burn_sentinel(key);
+                        if !self.burn_sentinel(key) {
+                            burn_failed = true;
+                        }
                     } else {
                         pending = true;
                     }
@@ -475,7 +478,10 @@ impl App {
                 None => missing.push(key),
             }
         }
-        if !missing.is_empty() {
+        if burn_failed {
+            let line = self.ng_line();
+            self.note_result(line, false);
+        } else if !missing.is_empty() {
             let names = missing
                 .iter()
                 .map(|k| format!("KEY{k}"))
@@ -494,14 +500,18 @@ impl App {
         }
     }
 
-    fn burn_sentinel(&mut self, key: u8) {
+    /// Burn a key's pair-mode sentinel. The result is returned and
+    /// checked by callers: a failed burn leaves the plain single on
+    /// the device, so reporting success anyway would tell the user
+    /// pair mode is armed when nothing on the device changed.
+    fn burn_sentinel(&mut self, key: u8) -> bool {
         let sentinel = pair_chord::sentinel_combo(key);
         self.device.write_key(
             key,
             self.layer,
             &[(sentinel.mods, sentinel.usage)],
             sentinel.mods,
-        );
+        )
     }
 
     /// The master pair-mode toggle. Turning on burns sentinels (current
@@ -516,6 +526,7 @@ impl App {
         if on {
             let mut missing = Vec::new();
             let mut pending = false;
+            let mut burn_failed = false;
             for key in 1..=6u8 {
                 if !cfg.participates(key) {
                     continue;
@@ -523,7 +534,9 @@ impl App {
                 match cfg.single(key) {
                     Some(_) => {
                         if self.device.is_open() {
-                            self.burn_sentinel(key);
+                            if !self.burn_sentinel(key) {
+                                burn_failed = true;
+                            }
                         } else {
                             pending = true;
                         }
@@ -531,7 +544,10 @@ impl App {
                     None => missing.push(key),
                 }
             }
-            if !missing.is_empty() {
+            if burn_failed {
+                let line = self.ng_line();
+                self.note_result(line, false);
+            } else if !missing.is_empty() {
                 let names = missing
                     .iter()
                     .map(|k| format!("KEY{k}"))
@@ -545,52 +561,69 @@ impl App {
             }
         } else {
             let mut pending = false;
+            let mut burn_failed = false;
             for key in 1..=6u8 {
                 if let Some(single) = cfg.single(key) {
                     if self.device.is_open() {
-                        self.burn_raw_single(key, single);
+                        if !self.burn_raw_single(key, single) {
+                            burn_failed = true;
+                        }
                     } else {
                         pending = true;
                     }
                 }
             }
-            self.toast = if pending {
-                self.t("chords_restore_pending").to_string()
+            if burn_failed {
+                let line = self.ng_line();
+                self.note_result(line, false);
             } else {
-                self.t("chords_off_done").to_string()
-            };
+                self.toast = if pending {
+                    self.t("chords_restore_pending").to_string()
+                } else {
+                    self.t("chords_off_done").to_string()
+                };
+            }
         }
     }
 
-    fn burn_raw_single(&mut self, key: u8, single: pair_chord::Combo) {
+    fn burn_raw_single(&mut self, key: u8, single: pair_chord::Combo) -> bool {
         if single.usage != 0 {
             self.device
-                .write_key(key, self.layer, &[(single.mods, single.usage)], 0);
+                .write_key(key, self.layer, &[(single.mods, single.usage)], 0)
         } else {
-            self.device.write_key(key, self.layer, &[], single.mods);
+            self.device.write_key(key, self.layer, &[], single.mods)
         }
     }
 
-    /// Write a key combo, honouring pair mode. While pair mode is on, a
-    /// KEY1..KEY6 write stores the real combo in `chords.singles` and
-    /// burns the key's sentinel instead when the key takes part in a
-    /// configured pair (the real combo when it does not). A multi-group
-    /// combo cannot be a pair-mode single and is refused.
+    /// Write a key combo, honouring pair mode. A successful KEY1..KEY6
+    /// write ALWAYS stores the real combo in `chords.singles` — with
+    /// pair mode on or off — because turning the mode on and assigning
+    /// a pair both rely on that record to burn the key's sentinel
+    /// (`docs/chord-keys.md` step 1 promises an ordinary write records
+    /// the single; this used to record only while the mode was on, so
+    /// a pair assigned after ordinary writes burned no sentinels at
+    /// all and the device kept firing the plain singles). While pair
+    /// mode is on, a participating key gets its sentinel burned
+    /// instead of the real combo. A multi-group combo cannot be a
+    /// pair-mode single: refused while the mode is on, and while off
+    /// it clears the stored single (the device content no longer
+    /// matches any single the resident could replay).
     fn burn_key(&mut self, key: u8, groups: &[(u8, u8)], lone: u8) -> bool {
-        if !pair_chord::chords_enabled(&self.settings) || !(1..=6).contains(&key) {
+        if !(1..=6).contains(&key) {
             return self.device.write_key(key, self.layer, groups, lone);
         }
-        let single = match (groups, lone) {
-            ([(mods, usage)], _) => Some(pair_chord::Combo {
-                mods: *mods,
-                usage: *usage,
-            }),
-            ([], 0) => None,
-            ([], mods) => Some(pair_chord::Combo { mods, usage: 0 }),
-            _ => {
-                self.toast = self.t("chords_single_only").to_string();
-                return false;
+        let parsed = single_for_write(groups, lone);
+        if !pair_chord::chords_enabled(&self.settings) {
+            let ok = self.device.write_key(key, self.layer, groups, lone);
+            if ok {
+                pair_chord::set_single(&mut self.settings, key, parsed.flatten());
+                self.save();
             }
+            return ok;
+        }
+        let Some(single) = parsed else {
+            self.toast = self.t("chords_single_only").to_string();
+            return false;
         };
         let cfg = pair_chord::PairChordConfig::from_settings(&self.settings);
         let ok = if cfg.participates(key) {
@@ -776,6 +809,15 @@ impl App {
         } else {
             self.device.write_mouse(key, self.layer, action)
         };
+        if ok && (1..=6).contains(&key) {
+            // The key no longer carries a key combo, so a stored
+            // pair-mode single for it would be stale: the resident
+            // would replay a combo the device no longer holds. (While
+            // pair mode is on this write is refused above, so this
+            // only runs with the mode off.)
+            pair_chord::set_single(&mut self.settings, key, None);
+            self.save();
+        }
         let written = if media {
             Written::Media(action.to_string())
         } else {
@@ -2067,6 +2109,23 @@ fn load_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     Some((image.into_raw(), w, h))
 }
 
+/// The pair-mode single a key write represents, as an outer/inner
+/// pair of options: `Some(Some(combo))` for a plain one-group combo,
+/// `Some(None)` for an empty write (the key is cleared, so the stored
+/// single clears too), and `None` for a multi-group combo, which no
+/// single can represent. Used by `burn_key` in both pair-mode states.
+fn single_for_write(groups: &[(u8, u8)], lone: u8) -> Option<Option<pair_chord::Combo>> {
+    match (groups, lone) {
+        ([(mods, usage)], _) => Some(Some(pair_chord::Combo {
+            mods: *mods,
+            usage: *usage,
+        })),
+        ([], 0) => Some(None),
+        ([], mods) => Some(Some(pair_chord::Combo { mods, usage: 0 })),
+        _ => None,
+    }
+}
+
 /// Named-action write dispatch for the Media (page 2) and Mouse
 /// (page 3) pages: the action table plus the `media` flag for
 /// `write_named`. The Mouse page must pass `media: false` — with
@@ -2170,5 +2229,28 @@ mod tests {
             );
         }
         assert!(named_write_parts(keys::MOUSE_ACTIONS, usize::MAX).is_none());
+    }
+
+    #[test]
+    fn single_for_write_shapes() {
+        // One group (with or without a trailing lone-modifier byte,
+        // which the frame builder folds away) is that combo.
+        assert_eq!(
+            single_for_write(&[(0x01, 6)], 0),
+            Some(Some(pair_chord::Combo { mods: 1, usage: 6 }))
+        );
+        assert_eq!(
+            single_for_write(&[(0x01, 6)], 0x02),
+            Some(Some(pair_chord::Combo { mods: 1, usage: 6 }))
+        );
+        // An empty write clears the key, and the stored single.
+        assert_eq!(single_for_write(&[], 0), Some(None));
+        // Modifiers alone are a modifiers-only single.
+        assert_eq!(
+            single_for_write(&[], 0x03),
+            Some(Some(pair_chord::Combo { mods: 3, usage: 0 }))
+        );
+        // A multi-group combo cannot be represented as a single.
+        assert_eq!(single_for_write(&[(0x01, 6), (0, 7)], 0), None);
     }
 }
