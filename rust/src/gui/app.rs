@@ -1,4 +1,5 @@
-//! egui window. Tabs: Keys, Modifiers, Media, Mouse, LED, Dial, Help.
+//! egui window. Tabs: Keys (plain keys and modifier combinations on
+//! one page), Media, Mouse, LED, Dial, Help.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -341,14 +342,38 @@ impl App {
 
     fn write_current(&mut self) {
         match self.page {
-            0 => self.write_basic(),
-            1 => self.write_modifier(),
-            2 | 3 => {
+            0 => self.write_keys_page(),
+            1 | 2 => {
                 let (table, media) = named_write_for_page(self.page);
                 self.write_named(table, media);
             }
-            4 => self.write_led(),
+            3 => self.write_led(),
             _ => self.toast = self.t("pick_function").to_string(),
+        }
+    }
+
+    /// What the Write button will do on the merged Keys page, decided
+    /// by [`keys_write_plan`] from the current editor state.
+    fn keys_plan(&self) -> KeysWrite {
+        keys_write_plan(
+            self.key_sel,
+            &self.groups,
+            self.staged_mods(),
+            keys::usage_for_label_layout(&self.base_label, self.key_layout),
+        )
+    }
+
+    /// The merged Keys page has one Write button for two kinds of
+    /// assignment. The plan picks which of the two historical write
+    /// paths runs, so pair assignment and the pair-mode rules stay
+    /// exactly the ones each path already enforces (`write_basic`
+    /// burns a plain key, `write_modifier` burns a combination; both
+    /// go through `burn_key` / `assign_pair`).
+    fn write_keys_page(&mut self) {
+        match self.keys_plan() {
+            KeysWrite::Plain(_) => self.write_basic(),
+            KeysWrite::Combo { .. } => self.write_modifier(),
+            KeysWrite::None => self.toast = self.t("pick_function").to_string(),
         }
     }
 
@@ -433,14 +458,21 @@ impl App {
             }
         });
         ui.add_space(4.0);
-        self.page_list(
-            ui,
-            keys::picker_keys(self.key_layout)
-                .iter()
-                .map(|(label, _)| *label)
-                .collect(),
-            true,
-        );
+        // One scroll area for the function list and the combination
+        // editor below it: the two halves of the merged page. The
+        // list labels follow the selected keyboard layout.
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            self.page_list(
+                ui,
+                keys::picker_keys(self.key_layout)
+                    .iter()
+                    .map(|(label, _)| *label)
+                    .collect(),
+                true,
+            );
+            ui.separator();
+            self.page_combo_editor(ui);
+        });
     }
 
     fn pair_label(index: usize) -> String {
@@ -1122,7 +1154,7 @@ impl App {
                 codes.push(json!(code));
             }
             dial.insert("rotate_codes".into(), Value::Array(codes));
-        } else if self.page == 5 {
+        } else if self.page == 4 {
             dial.insert("push_code".into(), json!(code));
         }
         self.save();
@@ -1195,7 +1227,7 @@ impl App {
             ctx.request_repaint();
             return;
         }
-        if self.shot_phase < 7 {
+        if self.shot_phase < 6 {
             self.page = self.shot_phase;
         } else {
             self.tray_note = true;
@@ -1208,7 +1240,7 @@ impl App {
     }
 
     fn store_shot(&mut self, ctx: &egui::Context, image: &egui::ColorImage, phase: usize) {
-        let name = if phase >= 7 {
+        let name = if phase >= 6 {
             "tray.png".to_string()
         } else {
             format!("tab-{phase}.png")
@@ -1225,7 +1257,7 @@ impl App {
         if self.shot_dir.is_some() {
             self.shot_phase = phase + 1;
             self.shot_wait = 0;
-            if self.shot_phase > 7 {
+            if self.shot_phase > 6 {
                 self.allow_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             } else {
@@ -1337,7 +1369,7 @@ impl App {
                     .on_hover_text(self.t("help_button"))
                     .clicked()
                 {
-                    self.page = 6;
+                    self.page = 5;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.lang_switch(ui);
@@ -1470,11 +1502,10 @@ impl App {
             ui.separator();
             match self.page {
                 0 => self.page_keys(ui),
-                1 => self.page_modifiers(ui),
-                2 => self.page_actions(ui, keys::MEDIA_ACTIONS, true),
-                3 => self.page_actions(ui, keys::MOUSE_ACTIONS, false),
-                4 => self.page_led(ui),
-                5 => self.page_dial(ui),
+                1 => self.page_actions(ui, keys::MEDIA_ACTIONS, true),
+                2 => self.page_actions(ui, keys::MOUSE_ACTIONS, false),
+                3 => self.page_led(ui),
+                4 => self.page_dial(ui),
                 _ => self.page_help(ui),
             }
             ui.separator();
@@ -1504,78 +1535,65 @@ impl App {
     fn write_offer(&self) -> (String, String, bool) {
         match self.page {
             0 => {
-                // The picked key's label under the current layout; a
-                // stale index (e.g. past a layout switch) yields None.
-                let picked_label = self.key_sel.and_then(|index| {
-                    keys::picker_keys(self.key_layout)
-                        .get(index)
-                        .and_then(|(_, usage)| {
-                            keys::label_for_usage_layout(*usage, self.key_layout)
-                        })
-                });
-                if let Some(pair) = self.pair_sel {
-                    return match picked_label {
-                        Some(label) => (
-                            i18n::write_button(&self.lang, &Self::pair_label(pair), label),
+                // Merged Keys page: the button names the pair when one
+                // is selected, else the selected key; with neither it
+                // stays disabled with the pick-a-key hint (both former
+                // pages behaved this way).
+                let target = match self.pair_sel {
+                    Some(pair) => Self::pair_label(pair),
+                    None => match self.selected {
+                        Some(key) => format!("KEY{key}"),
+                        None => {
+                            return (
+                                self.t("download").to_string(),
+                                self.t("pick_first").to_string(),
+                                false,
+                            );
+                        }
+                    },
+                };
+                match self.keys_plan() {
+                    KeysWrite::Plain(index) => {
+                        // The picked key's label under the current
+                        // layout; a stale index (e.g. past a layout
+                        // switch) disables the button instead.
+                        let picked_label = keys::picker_keys(self.key_layout)
+                            .get(index)
+                            .and_then(|(_, usage)| {
+                                keys::label_for_usage_layout(*usage, self.key_layout)
+                            });
+                        match picked_label {
+                            Some(label) => (
+                                i18n::write_button(&self.lang, &target, label),
+                                String::new(),
+                                true,
+                            ),
+                            None => (
+                                self.t("download").to_string(),
+                                self.t("pick_function").to_string(),
+                                false,
+                            ),
+                        }
+                    }
+                    KeysWrite::Combo { keys, lone } => {
+                        let desc =
+                            keys::describe_key_combo_layout(&keys, lone, self.key_layout);
+                        (
+                            i18n::write_button(&self.lang, &target, &desc),
                             String::new(),
                             true,
-                        ),
-                        None => (
-                            self.t("download").to_string(),
-                            self.t("pick_function").to_string(),
-                            false,
-                        ),
-                    };
-                }
-                match (self.selected, picked_label) {
-                    (Some(key), Some(label)) => (
-                        i18n::write_button(&self.lang, &format!("KEY{key}"), label),
-                        String::new(),
-                        true,
-                    ),
-                    (None, _) => (
-                        self.t("download").to_string(),
-                        self.t("pick_first").to_string(),
-                        false,
-                    ),
-                    _ => (
+                        )
+                    }
+                    KeysWrite::None => (
                         self.t("download").to_string(),
                         self.t("pick_function").to_string(),
                         false,
                     ),
                 }
             }
-            1 => {
-                if self.pair_sel.is_none() && self.selected.is_none() {
-                    return (
-                        self.t("download").to_string(),
-                        self.t("pick_first").to_string(),
-                        false,
-                    );
-                }
-                let usage = keys::usage_for_label_layout(&self.base_label, self.key_layout);
-                let (keys, lone) = keys::editor_key_combo(&self.groups, self.staged_mods(), usage);
-                if keys.is_empty() && lone == 0 {
-                    return (
-                        self.t("download").to_string(),
-                        self.t("write_need_combo").to_string(),
-                        false,
-                    );
-                }
-                let desc = keys::describe_key_combo_layout(&keys, lone, self.key_layout);
-                let target = match self.pair_sel {
-                    Some(pair) => Self::pair_label(pair),
-                    None => format!("KEY{}", self.selected.unwrap()),
-                };
-                (
-                    i18n::write_button(&self.lang, &target, &desc),
-                    String::new(),
-                    true,
-                )
-            }
-            2 => self.named_offer(keys::MEDIA_ACTIONS, self.media_sel),
-            3 => self.named_offer(keys::MOUSE_ACTIONS, self.mouse_sel),
-            4 => {
+            1 => self.named_offer(keys::MEDIA_ACTIONS, self.media_sel),
+            2 => self.named_offer(keys::MOUSE_ACTIONS, self.mouse_sel),
+            3 => {
                 let label = keys::LED_MODES
                     .iter()
                     .find(|(mode, _)| *mode == self.led_sel)
@@ -1662,24 +1680,31 @@ impl App {
 }
 
 impl App {
+    /// The plain function rows. The caller provides the scroll area
+    /// (the merged Keys page scrolls the list and the combination
+    /// editor together).
     fn page_list(&mut self, ui: &mut egui::Ui, labels: Vec<&str>, keys: bool) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (index, label) in labels.iter().enumerate() {
-                let selected = self.key_sel == Some(index);
-                let caption = marked(selected, (*label).to_string());
-                let response = ui.selectable_label(selected, caption);
-                if response.clicked() {
-                    self.key_sel = Some(index);
-                }
-                if response.double_clicked() && keys && self.double_click_write {
-                    self.key_sel = Some(index);
-                    self.write_basic();
-                }
+        for (index, label) in labels.iter().enumerate() {
+            let selected = self.key_sel == Some(index);
+            let caption = marked(selected, (*label).to_string());
+            let response = ui.selectable_label(selected, caption);
+            if response.clicked() {
+                self.key_sel = Some(index);
             }
-        });
+            if response.double_clicked() && keys && self.double_click_write {
+                self.key_sel = Some(index);
+                self.write_basic();
+            }
+        }
     }
 
-    fn page_modifiers(&mut self, ui: &mut egui::Ui) {
+    /// The modifier-combination editor: the lower half of the merged
+    /// Keys page (formerly the separate Modifiers page). Staging a
+    /// modifier, choosing a base key, or adding a group is what makes
+    /// the Write button burn a combination instead of the plain
+    /// function picked in the list above (see `keys_write_plan`).
+    fn page_combo_editor(&mut self, ui: &mut egui::Ui) {
+        ui.label(self.t("page_fun"));
         ui.label(self.t("mod_groups"));
         ui.horizontal_wrapped(|ui| {
             for (index, (name, _)) in MODIFIERS.iter().enumerate() {
@@ -2126,15 +2151,56 @@ fn single_for_write(groups: &[(u8, u8)], lone: u8) -> Option<Option<pair_chord::
     }
 }
 
-/// Named-action write dispatch for the Media (page 2) and Mouse
-/// (page 3) pages: the action table plus the `media` flag for
+/// What the Write button will do on the merged Keys page. The Keys
+/// and Modifiers pages used to be separate tabs with separate write
+/// paths; on the merged page this plan is the single rule both the
+/// button label (`write_offer`) and the write itself
+/// (`write_keys_page`) follow, so they can never disagree.
+#[derive(Clone, PartialEq, Debug)]
+enum KeysWrite {
+    /// Nothing composed yet: no function picked in the list and the
+    /// combination editor untouched.
+    None,
+    /// Plain function-list write: an index into the picker list
+    /// for the current layout (`keys::picker_keys`).
+    Plain(usize),
+    /// Modifier-combination write: the groups and lone-modifier byte
+    /// `keys::editor_key_combo` produces from the editor state.
+    Combo { keys: Vec<(u8, u8)>, lone: u8 },
+}
+
+/// Decide the merged Keys page's write from the editor state. A
+/// combination is being composed whenever the editor yields one —
+/// any staged modifier checkbox, a chosen base key, or at least one
+/// added group — and it wins over the function-list selection: the
+/// editor sits below the list precisely so that adding modifiers to
+/// a picked key needs no tab switch. Only with the editor untouched
+/// does the list selection write as a plain key.
+fn keys_write_plan(
+    key_sel: Option<usize>,
+    groups: &[(u8, u8)],
+    staged_mods: u8,
+    base_usage: u8,
+) -> KeysWrite {
+    let (keys, lone) = keys::editor_key_combo(groups, staged_mods, base_usage);
+    if !keys.is_empty() || lone != 0 {
+        return KeysWrite::Combo { keys, lone };
+    }
+    match key_sel {
+        Some(index) => KeysWrite::Plain(index),
+        None => KeysWrite::None,
+    }
+}
+
+/// Named-action write dispatch for the Media (page 1) and Mouse
+/// (page 2) pages: the action table plus the `media` flag for
 /// `write_named`. The Mouse page must pass `media: false` — with
 /// `true` the write reads the media selection instead of the mouse
 /// selection and encodes through the media table (whose actions do
 /// not include any mouse action), so mouse writes always failed.
 fn named_write_for_page(page: usize) -> (&'static [(&'static str, &'static str)], bool) {
     match page {
-        2 => (keys::MEDIA_ACTIONS, true),
+        1 => (keys::MEDIA_ACTIONS, true),
         _ => (keys::MOUSE_ACTIONS, false),
     }
 }
@@ -2180,7 +2246,7 @@ mod tests {
 
     #[test]
     fn named_write_pages_use_their_own_table_and_path() {
-        let (table, media) = named_write_for_page(2);
+        let (table, media) = named_write_for_page(1);
         assert!(media);
         assert_eq!(table, keys::MEDIA_ACTIONS);
 
@@ -2188,9 +2254,71 @@ mod tests {
         // `media: true`, so its write button read the media
         // selection and encoded mouse actions through the media
         // path — mouse writes always failed, knob slots included.
-        let (table, media) = named_write_for_page(3);
+        let (table, media) = named_write_for_page(2);
         assert!(!media);
         assert_eq!(table, keys::MOUSE_ACTIONS);
+    }
+
+    #[test]
+    fn merged_keys_plan_picks_plain_or_combo() {
+        // Nothing picked, editor untouched: no write.
+        assert_eq!(keys_write_plan(None, &[], 0, 0), KeysWrite::None);
+
+        // A function picked in the list, editor untouched: the plain
+        // write the old Keys page did.
+        let index = USAGE_KEYS
+            .iter()
+            .position(|(name, _)| *name == "Enter")
+            .unwrap();
+        assert_eq!(
+            keys_write_plan(Some(index), &[], 0, 0),
+            KeysWrite::Plain(index)
+        );
+
+        // Staging a modifier alone composes a lone-modifier write,
+        // and it wins over a list selection: adding modifiers to a
+        // picked key is the whole point of the merged page.
+        let ctrl = MODIFIERS.iter().find(|(n, _)| *n == "Ctrl").unwrap().1;
+        assert_eq!(
+            keys_write_plan(Some(index), &[], ctrl, 0),
+            KeysWrite::Combo {
+                keys: Vec::new(),
+                lone: ctrl,
+            }
+        );
+
+        // A base key chosen in the editor composes a one-group combo
+        // (here with no modifiers), with or without a list selection.
+        let a_usage = keys::usage_for_label("A");
+        assert_ne!(a_usage, 0);
+        assert_eq!(
+            keys_write_plan(None, &[], 0, a_usage),
+            KeysWrite::Combo {
+                keys: vec![(0, a_usage)],
+                lone: 0,
+            }
+        );
+        assert_eq!(
+            keys_write_plan(Some(index), &[], ctrl, a_usage),
+            KeysWrite::Combo {
+                keys: vec![(ctrl, a_usage)],
+                lone: ctrl,
+            }
+        );
+
+        // Staged groups compose the multi-group combo; the first
+        // group's modifiers double as the lone byte (editor_key_combo
+        // semantics the old Modifiers page wrote with), and a pair
+        // target consumes exactly this plan's first group via
+        // write_modifier.
+        let groups = vec![(ctrl, a_usage), (0, keys::usage_for_label("B"))];
+        match keys_write_plan(Some(index), &groups, 0, 0) {
+            KeysWrite::Combo { keys, lone } => {
+                assert_eq!(keys, groups);
+                assert_eq!(lone, ctrl);
+            }
+            other => panic!("expected Combo, got {other:?}"),
+        }
     }
 
     #[test]

@@ -76,9 +76,9 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
         }
         "chords_assign_hint" => {
             if ja {
-                "ペアを選んだ状態で、キー一覧や修飾ページで組み合わせを作って書き込むと、そのペアへの割り当てになります。"
+                "ペアを選んだ状態で、キー画面で組み合わせを作って書き込むと、そのペアへの割り当てになります。"
             } else {
-                "With a pair selected, building a combo on the Keys or Modifiers page and writing it assigns that pair."
+                "With a pair selected, building a combo on the Keys page and writing it assigns that pair."
             }
         }
         "chords_single_first" => {
@@ -927,10 +927,9 @@ pub fn lang_button(lang: &str) -> &'static str {
     }
 }
 
-pub fn pages(lang: &str) -> [&'static str; 7] {
+pub fn pages(lang: &str) -> [&'static str; 6] {
     [
         tr(lang, "page_key"),
-        tr(lang, "page_fun"),
         tr(lang, "page_media"),
         tr(lang, "page_mouse"),
         tr(lang, "page_led"),
@@ -946,10 +945,10 @@ pub fn help_text(lang: &str) -> &'static str {
     if lang == "ja" {
         "1. 上部でプリセット(1～3)を選択。T1キーボード本体に保存できるキー割り当てのセット（1～3）\n\
          2. 左の物理キーを選択\n\
-         3. 右のタブで割り当てる機能を選択\n\
+         3. 右のキー画面で割り当てる機能を選択（通常のキー、または下半分の修飾キーの組み合わせ）\n\
          4. ボタンの文言を確認して「書き込み」を押す\n\
          リストのダブルクリックは、左の「リストのダブルクリックで書き込む」を入れたときだけ書き込みます。\n\n\
-         修飾キー: 修飾を1つ以上と、任意のベースキーを選びます。\n\
+         修飾キーの組み合わせ: キー画面の下半分で、修飾を1つ以上と、任意のベースキーを選びます。\n\
          グループは最大5つまで追加できます。保存すると設定ファイルに残ります。\n\n\
          設定はキーボード本体のフラッシュに保存され、このツールでは読み戻せません。\n\
          「現在の設定内容」はこのツールが書き込んだ記録だけを表示します。\n\n\
@@ -957,10 +956,10 @@ pub fn help_text(lang: &str) -> &'static str {
     } else {
         "1. Choose the preset (1-3) at the top. A set of key assignments stored on the T1 keyboard (1-3).\n\
          2. Pick a physical key on the left\n\
-         3. Pick the function on the right tab\n\
+         3. Pick the function on the Keys page on the right (a plain key, or a modifier combination in the lower half)\n\
          4. Check the button label and press Write\n\
          Double-clicking a list row writes only when the double-click option on the left is on.\n\n\
-         Modifiers: pick one or more modifiers and any base key.\n\
+         Modifier combinations: in the lower half of the Keys page, pick one or more modifiers and any base key.\n\
          Up to 5 groups can be added. Saved combos stay in the settings file.\n\n\
          Settings are stored in the keyboard flash and cannot be read back.\n\
          The current assignment line shows only what this tool wrote.\n\n\
@@ -1144,7 +1143,7 @@ mod ui_text_tests {
                     assert!(!text.contains("license"), "{lang} {key}: {text}");
                 }
             }
-            assert_eq!(pages(lang).len(), 7);
+            assert_eq!(pages(lang).len(), 6);
             for text in [help_text(lang), dial_hint(lang)] {
                 assert!(
                     !text.contains("VRChat") && !text.contains("OSC"),

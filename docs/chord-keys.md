@@ -54,7 +54,7 @@ no configured pair are never delayed.
    未記録のキーは、トーストで名前を知らせます。そのキーの単押しを
    先に割り当ててください（オンの状態で単押しを書くと、記録と目印の
    焼き込みが同時に行われます）。
-3. ペアの行を選んだ状態で、キー一覧や修飾ページで組み合わせを作って
+3. ペアの行を選んだ状態で、キー画面で組み合わせを作って
    書き込むと、そのペアへの割り当てになります（ペアの割り当て自体は
    設定にだけ保存され、本体へは焼きません）。
 
@@ -64,7 +64,7 @@ no configured pair are never delayed.
    their sentinel burned automatically. Keys without a recorded single
    are named in a toast; assign their single first (writing a single
    while pair mode is on records it and burns the sentinel at once).
-3. Select a pair row, build a combo on the Keys or Modifiers page, and
+3. Select a pair row, build a combo on the Keys page, and
    write: that assigns the pair (pair assignments live in settings only;
    nothing is burned for the pair itself).
 

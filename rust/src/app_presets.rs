@@ -1,7 +1,8 @@
 //! One-click application presets for well-known desktop apps.
 //!
 //! Each preset writes six plain key combinations (modifier mask + HID
-//! usage, the same bytes the Modifiers page writes) to KEY1..KEY6 of the
+//! usage, the same bytes the Keys page's combination editor writes) to
+//! KEY1..KEY6 of the
 //! current layer. The combinations are the apps' default Windows
 //! shortcuts; see `docs/app-presets.md` for the full tables, the macOS
 //! equivalents and the sources.
@@ -157,7 +158,7 @@ pub const APP_PRESETS: [AppPreset; 4] = [
 ];
 
 /// The settings description recorded for a preset key, in the same form
-/// the Modifiers page records (e.g. `Ctrl+K`, `Shift+Delete`).
+/// the combination editor records (e.g. `Ctrl+K`, `Shift+Delete`).
 pub fn description(key: &PresetKey) -> String {
     describe_key_combo(&[(key.mods, key.usage)], 0)
 }

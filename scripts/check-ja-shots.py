@@ -16,7 +16,7 @@ import struct
 import sys
 from pathlib import Path
 
-UI_SHOTS = ["tray.png"] + [f"tab-{index}.png" for index in range(7)]
+UI_SHOTS = ["tray.png"] + [f"tab-{index}.png" for index in range(6)]
 
 
 def png_size(path: Path) -> tuple[int, int]:
