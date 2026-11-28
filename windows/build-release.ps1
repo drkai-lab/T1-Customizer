@@ -20,7 +20,7 @@ foreach ($name in 't1-keyboard-config.exe', 't1-keyboard-config-gui.exe') {
     Copy-Item (Join-Path $target "release\$name") (Join-Path $dist $name) -Force
 }
 $version = & (Join-Path $dist 't1-keyboard-config.exe') --version
-if ($version -notmatch '1\.0\.5') { throw "unexpected version: $version" }
+if ($version -notmatch '1\.0\.6') { throw "unexpected version: $version" }
 $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
     Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { throw 'Inno Setup 6 (ISCC.exe) not found' }
