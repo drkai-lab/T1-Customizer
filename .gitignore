@@ -8,3 +8,4 @@ Release/
 dist-win/
 dist/
 rust/target/
+packaging/msix/stage/

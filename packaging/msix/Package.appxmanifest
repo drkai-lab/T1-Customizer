@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  T1-Customizer - Microsoft Store MSIX package manifest (full-trust Win32).
+
+  BEFORE BUILDING A STORE PACKAGE, replace the two REPLACE-WITH identity
+  placeholders below with the values from Partner Center, and confirm the
+  PublisherDisplayName matches the account's publisher display name:
+    Partner Center > (your app) > Product management > Product identity
+      - "Package/Identity/Name"            -> Identity Name
+      - "Package/Identity/Publisher"       -> Identity Publisher
+      - "Package properties / Publisher display name" -> PublisherDisplayName
+  The values in this file are placeholders on purpose: a package whose
+  identity does not match the Partner Center product is rejected on upload.
+  The Version attribute is rewritten by windows/build-msix.ps1 from the
+  built executable's version (x.y.z -> x.y.z.0) in the staging copy only;
+  this checked-in file is never modified by the script.
+
+  Do NOT sign the .msix produced from this manifest. The Microsoft Store
+  re-signs the package with its own certificate after certification -
+  that re-signing is exactly what removes the SmartScreen warning.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 uap10 desktop rescap">
+
+  <Identity
+    Name="REPLACE-WITH-PARTNER-CENTER-IDENTITY-NAME"
+    Publisher="CN=REPLACE-WITH-PARTNER-CENTER-PUBLISHER"
+    Version="1.0.6.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>T1-Customizer</DisplayName>
+    <PublisherDisplayName>AppWizz Kai</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="ja-JP" />
+    <Resource Language="en-US" />
+    <Resource Language="ko-KR" />
+  </Resources>
+
+  <Applications>
+    <!-- Main entry point shown in the Start menu: the GUI executable.
+         The GUI relaunches its own binary with the monitor flag for the
+         resident monitor and hands off to the console executable when
+         started through it; all of that stays inside this package. -->
+    <Application
+      Id="T1CustomizerGui"
+      Executable="t1-keyboard-config-gui.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="T1-Customizer"
+        Description="Configuration tool for the T1 mini macro keyboard: key assignments, media/mouse actions, LED and dial behavior."
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        BackgroundColor="transparent">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+    </Application>
+
+    <!-- Console executable: the CLI modes (monitor, watch, selftest,
+         version) and the no-argument handoff into the GUI. The execution
+         alias keeps `t1-keyboard-config` usable from a terminal, as with
+         the installer build. This entry also appears in the Start app
+         list; launching it with no arguments opens the GUI. -->
+    <Application
+      Id="T1CustomizerCli"
+      Executable="t1-keyboard-config.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="T1-Customizer (CLI)"
+        Description="T1-Customizer command-line entry point (monitor, self-test, version)."
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        BackgroundColor="transparent" />
+      <Extensions>
+        <uap3:Extension Category="windows.appExecutionAlias" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="t1-keyboard-config.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Required for any packaged classic Win32 app: lets both executables
+         run as ordinary full-trust processes (Win32 HID access for the USB
+         keyboard, child-process spawning, tray icon, SendInput for the
+         two-key chord feature). This is a RESTRICTED capability: Partner
+         Center asks for a written justification in the submission's
+         "Submission options" step - a ready-to-paste draft is in
+         docs/microsoft-store.md. No other capabilities are declared:
+         the app uses the Win32 HID API (hidapi), not the WinRT device
+         APIs, so no DeviceCapability entries are needed. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>
