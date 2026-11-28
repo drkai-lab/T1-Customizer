@@ -63,6 +63,9 @@ fn window(key: &str) -> Option<&'static str> {
         "page_mouse" => "마우스",
         "page_dial" => "다이얼",
         "page_about" => "도움말",
+        "kb_layout" => "키보드 배열",
+        "kb_layout_jis" => "일본어 (JIS)",
+        "kb_layout_us" => "영어 (US)",
         "layer" => "프리셋",
         "gray_keys" => "이 키는 선택할 수 없습니다",
         "layer_hint" => {

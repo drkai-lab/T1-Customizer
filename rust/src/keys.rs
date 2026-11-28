@@ -178,12 +178,71 @@ pub const DIAL_MODES: &[(&str, &str, &str)] = &[
     ("expressions", "Expressions", "表情"),
 ];
 
+/// Physical keyboard layout the key labels follow. `USAGE_KEYS` holds
+/// the US (ANSI) labels; `JIS_LABELS` overrides the usages whose
+/// unshifted character differs on a Japanese (JIS) keyboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyLayout {
+    Jis,
+    Us,
+}
+
+impl KeyLayout {
+    /// Settings value (`settings["key_layout"]`); anything but `"us"`
+    /// (including a missing value) means JIS.
+    pub fn from_setting(value: Option<&str>) -> Self {
+        match value {
+            Some("us") => KeyLayout::Us,
+            _ => KeyLayout::Jis,
+        }
+    }
+
+    pub fn setting(self) -> &'static str {
+        match self {
+            KeyLayout::Jis => "jis",
+            KeyLayout::Us => "us",
+        }
+    }
+}
+
+/// JIS labels for usages whose printed (unshifted) character differs
+/// from the US label in `USAGE_KEYS`, keyed by HID usage. Verified
+/// against the standard JIS layout: 0x2F is the @ key, 0x30 the [ key,
+/// 0x31 the ] key, 0x34 the : key, and 0x35 the 半角/全角 key. Usages
+/// not listed here print the same character on both layouts (e.g.
+/// 0x2D "-", 0x33 ";"). Usage 0x32 ("#") has no JIS counterpart and
+/// keeps its US label in both layouts.
+pub const JIS_LABELS: &[(&str, u8)] = &[
+    ("^", 46),
+    ("@", 47),
+    ("[", 48),
+    ("]", 49),
+    (":", 52),
+    ("半角/全角", 53),
+];
+
 pub fn usage_for_label(label: &str) -> u8 {
     USAGE_KEYS
         .iter()
         .find(|(name, _)| *name == label)
         .map(|(_, code)| *code)
         .unwrap_or(0)
+}
+
+/// Resolve a displayed label under `layout`. Falls back to the other
+/// layout's labels so a label picked before a layout switch (e.g. the
+/// combo editor's staged base key) still resolves to its usage.
+pub fn usage_for_label_layout(label: &str, layout: KeyLayout) -> u8 {
+    let tables: [&[(&str, u8)]; 2] = match layout {
+        KeyLayout::Jis => [JIS_LABELS, USAGE_KEYS],
+        KeyLayout::Us => [USAGE_KEYS, JIS_LABELS],
+    };
+    for table in tables {
+        if let Some((_, code)) = table.iter().find(|(name, _)| *name == label) {
+            return *code;
+        }
+    }
+    0
 }
 
 pub fn label_for_usage(usage: u8) -> Option<&'static str> {
@@ -193,6 +252,15 @@ pub fn label_for_usage(usage: u8) -> Option<&'static str> {
         .map(|(name, _)| *name)
 }
 
+pub fn label_for_usage_layout(usage: u8, layout: KeyLayout) -> Option<&'static str> {
+    if layout == KeyLayout::Jis
+        && let Some((name, _)) = JIS_LABELS.iter().find(|(_, code)| *code == usage)
+    {
+        return Some(name);
+    }
+    label_for_usage(usage)
+}
+
 pub fn clean_combo_name(name: &str) -> String {
     let flat = name.replace(['\r', '\n'], " ");
     let trimmed = flat.trim();
@@ -200,6 +268,10 @@ pub fn clean_combo_name(name: &str) -> String {
 }
 
 pub fn describe_mod_usage(mods: u8, usage: u8) -> String {
+    describe_mod_usage_layout(mods, usage, KeyLayout::Us)
+}
+
+pub fn describe_mod_usage_layout(mods: u8, usage: u8, layout: KeyLayout) -> String {
     let mut names = Vec::new();
     for (name, mask) in MODIFIERS {
         if mods & mask != 0 {
@@ -207,7 +279,7 @@ pub fn describe_mod_usage(mods: u8, usage: u8) -> String {
         }
     }
     if usage != 0
-        && let Some(label) = label_for_usage(usage)
+        && let Some(label) = label_for_usage_layout(usage, layout)
     {
         names.push(label);
     }
@@ -228,12 +300,16 @@ pub fn normalize_key_groups(groups: &[(u8, u8)]) -> Vec<(u8, u8)> {
 }
 
 pub fn describe_key_combo(keys: &[(u8, u8)], lone_mod: u8) -> String {
+    describe_key_combo_layout(keys, lone_mod, KeyLayout::Us)
+}
+
+pub fn describe_key_combo_layout(keys: &[(u8, u8)], lone_mod: u8, layout: KeyLayout) -> String {
     let keys = normalize_key_groups(keys);
     if keys.is_empty() {
-        describe_mod_usage(lone_mod, 0)
+        describe_mod_usage_layout(lone_mod, 0, layout)
     } else {
         keys.iter()
-            .map(|(mods, usage)| describe_mod_usage(*mods, *usage))
+            .map(|(mods, usage)| describe_mod_usage_layout(*mods, *usage, layout))
             .collect::<Vec<_>>()
             .join(" / ")
     }
@@ -434,4 +510,71 @@ fn combos_to_value(combos: &[ComboRecord]) -> Value {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layout_labels_for_differing_usages() {
+        // (usage, US label, JIS label) for every usage whose printed
+        // character differs between the layouts.
+        let cases: [(u8, &str, &str); 6] = [
+            (46, "=", "^"),
+            (47, "[", "@"),
+            (48, "]", "["),
+            (49, "\\", "]"),
+            (52, "'", ":"),
+            (53, "`", "半角/全角"),
+        ];
+        for (usage, us, jis) in cases {
+            assert_eq!(label_for_usage_layout(usage, KeyLayout::Us), Some(us));
+            assert_eq!(label_for_usage_layout(usage, KeyLayout::Jis), Some(jis));
+            assert_eq!(usage_for_label_layout(us, KeyLayout::Us), usage);
+            assert_eq!(usage_for_label_layout(jis, KeyLayout::Jis), usage);
+        }
+    }
+
+    #[test]
+    fn layout_labels_shared_usages_match() {
+        for (usage, label) in [(45u8, "-"), (51, ";"), (54, ","), (56, "/"), (4, "A")] {
+            assert_eq!(label_for_usage_layout(usage, KeyLayout::Jis), Some(label));
+            assert_eq!(label_for_usage_layout(usage, KeyLayout::Us), Some(label));
+        }
+    }
+
+    #[test]
+    fn label_resolution_survives_a_layout_switch() {
+        // A base label picked under one layout still resolves after
+        // switching to the other.
+        assert_eq!(usage_for_label_layout("=", KeyLayout::Jis), 46);
+        assert_eq!(usage_for_label_layout("^", KeyLayout::Us), 46);
+        assert_eq!(usage_for_label_layout("nope", KeyLayout::Jis), 0);
+    }
+
+    #[test]
+    fn layout_setting_round_trip_and_default() {
+        assert_eq!(KeyLayout::from_setting(None), KeyLayout::Jis);
+        assert_eq!(KeyLayout::from_setting(Some("jis")), KeyLayout::Jis);
+        assert_eq!(KeyLayout::from_setting(Some("us")), KeyLayout::Us);
+        assert_eq!(KeyLayout::from_setting(Some("bogus")), KeyLayout::Jis);
+        for layout in [KeyLayout::Jis, KeyLayout::Us] {
+            assert_eq!(KeyLayout::from_setting(Some(layout.setting())), layout);
+        }
+    }
+
+    #[test]
+    fn describe_uses_the_layout() {
+        assert_eq!(
+            describe_mod_usage_layout(0x01, 46, KeyLayout::Jis),
+            "Ctrl+^"
+        );
+        assert_eq!(describe_mod_usage_layout(0x01, 46, KeyLayout::Us), "Ctrl+=");
+        assert_eq!(
+            describe_key_combo_layout(&[(0, 46)], 0, KeyLayout::Jis),
+            "^"
+        );
+        assert_eq!(describe_key_combo(&[(0, 46)], 0), "=");
+    }
 }

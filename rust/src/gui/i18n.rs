@@ -285,6 +285,27 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
                 "Help"
             }
         }
+        "kb_layout" => {
+            if ja {
+                "キーボード配列"
+            } else {
+                "Keyboard layout"
+            }
+        }
+        "kb_layout_jis" => {
+            if ja {
+                "日本語 (JIS)"
+            } else {
+                "Japanese (JIS)"
+            }
+        }
+        "kb_layout_us" => {
+            if ja {
+                "英語 (US)"
+            } else {
+                "English (US)"
+            }
+        }
         "layer" => {
             if ja {
                 "プリセット"

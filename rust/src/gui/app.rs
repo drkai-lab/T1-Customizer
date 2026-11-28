@@ -112,6 +112,7 @@ struct App {
     settings: Settings,
     device: T1Device,
     lang: String,
+    key_layout: keys::KeyLayout,
     layer: u8,
     page: usize,
     selected: Option<u8>,
@@ -155,6 +156,8 @@ impl App {
         install_visuals(&cc.egui_ctx);
         let settings = settings::load_settings();
         let lang = i18n::ui_lang(settings.get("lang").and_then(|v| v.as_str())).to_string();
+        let key_layout =
+            keys::KeyLayout::from_setting(settings.get("key_layout").and_then(|v| v.as_str()));
         let layer = settings
             .get("layer")
             .and_then(|v| v.as_i64())
@@ -176,6 +179,7 @@ impl App {
             settings,
             device: T1Device::new(),
             lang,
+            key_layout,
             layer,
             page: std::env::var("T1_GUI_TAB")
                 .ok()
@@ -246,6 +250,25 @@ impl App {
                 self.save();
             }
         }
+    }
+
+    /// Switch the keyboard layout (`settings["key_layout"]`). A staged
+    /// base key in the combo editor is renamed to the same usage's
+    /// label in the new layout, so the switch never loses it.
+    fn set_key_layout(&mut self, layout: keys::KeyLayout) {
+        if self.key_layout == layout {
+            return;
+        }
+        let staged = keys::usage_for_label_layout(&self.base_label, self.key_layout);
+        self.key_layout = layout;
+        if staged != 0
+            && let Some(label) = keys::label_for_usage_layout(staged, layout)
+        {
+            self.base_label = label.to_string();
+        }
+        self.settings
+            .insert("key_layout".into(), json!(layout.setting()));
+        self.save();
     }
 
     fn save(&mut self) {
@@ -322,7 +345,8 @@ impl App {
             self.toast = self.t("pick_function").to_string();
             return;
         };
-        let (label, usage) = USAGE_KEYS[index];
+        let (_, usage) = USAGE_KEYS[index];
+        let label = keys::label_for_usage_layout(usage, self.key_layout).unwrap_or("");
         if let Some(pair) = self.pair_sel {
             // A pair is selected: the write assigns the pair in
             // settings only; nothing is burned for the pair itself.
@@ -374,7 +398,7 @@ impl App {
                 for (index, (a, b)) in pair_chord::PAIRS.iter().enumerate() {
                     let desc = cfg
                         .pair_combo(*a, *b)
-                        .map(|c| keys::describe_mod_usage(c.mods, c.usage))
+                        .map(|c| keys::describe_mod_usage_layout(c.mods, c.usage, self.key_layout))
                         .unwrap_or_else(|| "-".to_string());
                     let caption = format!("KEY{a}+KEY{b}  {desc}");
                     if ui
@@ -394,7 +418,16 @@ impl App {
             }
         });
         ui.add_space(4.0);
-        self.page_list(ui, USAGE_KEYS.iter().map(|(n, _)| *n).collect(), true);
+        self.page_list(
+            ui,
+            USAGE_KEYS
+                .iter()
+                .map(|(_, usage)| {
+                    keys::label_for_usage_layout(*usage, self.key_layout).unwrap_or("")
+                })
+                .collect(),
+            true,
+        );
     }
 
     fn pair_label(index: usize) -> String {
@@ -439,7 +472,7 @@ impl App {
         } else if pending {
             self.toast = self.t("chords_burn_pending").to_string();
         } else {
-            let desc = keys::describe_mod_usage(combo.mods, combo.usage);
+            let desc = keys::describe_mod_usage_layout(combo.mods, combo.usage, self.key_layout);
             let name = pair_chord::pair_name(a, b).unwrap_or_default();
             self.toast = self
                 .t("chords_pair_saved")
@@ -579,7 +612,7 @@ impl App {
             }
             written += 1;
             self.selected = Some(keynum);
-            let desc = app_presets::description(preset_key);
+            let desc = app_presets::description_layout(preset_key, self.key_layout);
             self.finish_key_write(
                 keynum,
                 &desc,
@@ -605,7 +638,7 @@ impl App {
                     }
                     written += 1;
                     self.selected = Some(keynum);
-                    let desc = app_presets::description(preset_key);
+                    let desc = app_presets::description_layout(preset_key, self.key_layout);
                     self.finish_key_write(
                         keynum,
                         &desc,
@@ -652,7 +685,7 @@ impl App {
     }
 
     fn write_modifier(&mut self) {
-        let usage = keys::usage_for_label(&self.base_label);
+        let usage = keys::usage_for_label_layout(&self.base_label, self.key_layout);
         let (keys, lone) = keys::editor_key_combo(&self.groups, self.staged_mods(), usage);
         if let Some(pair) = self.pair_sel {
             // A pair takes a single (mods, usage): the first staged
@@ -685,7 +718,7 @@ impl App {
             return;
         }
         let key = self.selected.unwrap();
-        let desc = keys::describe_key_combo(&keys, lone);
+        let desc = keys::describe_key_combo_layout(&keys, lone, self.key_layout);
         let ok = self.burn_key(key, &keys, lone);
         self.finish_key_write(
             key,
@@ -1228,6 +1261,22 @@ impl App {
                     }
                     response.on_hover_text(self.t("layer_hint"));
                 }
+                ui.separator();
+                ui.label(self.t("kb_layout"));
+                for (layout, name) in [
+                    (keys::KeyLayout::Jis, "kb_layout_jis"),
+                    (keys::KeyLayout::Us, "kb_layout_us"),
+                ] {
+                    if ui
+                        .add(egui::Button::selectable(
+                            self.key_layout == layout,
+                            self.t(name),
+                        ))
+                        .clicked()
+                    {
+                        self.set_key_layout(layout);
+                    }
+                }
                 if ui
                     .button("?")
                     .on_hover_text(self.t("help_button"))
@@ -1406,7 +1455,8 @@ impl App {
                             i18n::write_button(
                                 &self.lang,
                                 &Self::pair_label(pair),
-                                USAGE_KEYS[index].0,
+                                keys::label_for_usage_layout(USAGE_KEYS[index].1, self.key_layout)
+                                    .unwrap_or(""),
                             ),
                             String::new(),
                             true,
@@ -1420,7 +1470,12 @@ impl App {
                 }
                 match (self.selected, self.key_sel) {
                     (Some(key), Some(index)) => (
-                        i18n::write_button(&self.lang, &format!("KEY{key}"), USAGE_KEYS[index].0),
+                        i18n::write_button(
+                            &self.lang,
+                            &format!("KEY{key}"),
+                            keys::label_for_usage_layout(USAGE_KEYS[index].1, self.key_layout)
+                                .unwrap_or(""),
+                        ),
                         String::new(),
                         true,
                     ),
@@ -1444,7 +1499,7 @@ impl App {
                         false,
                     );
                 }
-                let usage = keys::usage_for_label(&self.base_label);
+                let usage = keys::usage_for_label_layout(&self.base_label, self.key_layout);
                 let (keys, lone) = keys::editor_key_combo(&self.groups, self.staged_mods(), usage);
                 if keys.is_empty() && lone == 0 {
                     return (
@@ -1453,7 +1508,7 @@ impl App {
                         false,
                     );
                 }
-                let desc = keys::describe_key_combo(&keys, lone);
+                let desc = keys::describe_key_combo_layout(&keys, lone, self.key_layout);
                 let target = match self.pair_sel {
                     Some(pair) => Self::pair_label(pair),
                     None => format!("KEY{}", self.selected.unwrap()),
@@ -1584,13 +1639,14 @@ impl App {
                 let only_label = self.t("mod_only");
                 let only = only_label.to_string();
                 ui.selectable_value(&mut self.base_label, only, only_label);
-                for (name, _) in USAGE_KEYS {
-                    ui.selectable_value(&mut self.base_label, (*name).to_string(), *name);
+                for (_, usage) in USAGE_KEYS {
+                    let name = keys::label_for_usage_layout(*usage, self.key_layout).unwrap_or("");
+                    ui.selectable_value(&mut self.base_label, name.to_string(), name);
                 }
             });
         ui.horizontal(|ui| {
             if ui.button(self.t("mod_add")).clicked() {
-                let usage = keys::usage_for_label(&self.base_label);
+                let usage = keys::usage_for_label_layout(&self.base_label, self.key_layout);
                 if usage == 0 {
                     self.toast = self.t("mod_need_base").to_string();
                 } else {
@@ -1609,14 +1665,22 @@ impl App {
             }
         });
         for (mods, usage) in &self.groups {
-            ui.label(keys::describe_mod_usage(*mods, *usage));
+            ui.label(keys::describe_mod_usage_layout(
+                *mods,
+                *usage,
+                self.key_layout,
+            ));
         }
         let (preview_keys, lone) = keys::editor_key_combo(
             &self.groups,
             self.staged_mods(),
-            keys::usage_for_label(&self.base_label),
+            keys::usage_for_label_layout(&self.base_label, self.key_layout),
         );
-        ui.label(keys::describe_key_combo(&preview_keys, lone));
+        ui.label(keys::describe_key_combo_layout(
+            &preview_keys,
+            lone,
+            self.key_layout,
+        ));
         let _ = lone;
         ui.horizontal(|ui| {
             ui.label(self.t("mod_name"));
@@ -1650,7 +1714,8 @@ impl App {
         ui.label(self.t("mod_saved"));
         let combos = keys::parse_modifier_combos(&self.settings);
         for (index, combo) in combos.iter().enumerate() {
-            let desc = keys::describe_key_combo(&combo.keys, combo.lone_mod);
+            let desc =
+                keys::describe_key_combo_layout(&combo.keys, combo.lone_mod, self.key_layout);
             if ui
                 .selectable_label(
                     self.combo_sel == Some(index),

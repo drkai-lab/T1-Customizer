@@ -162,6 +162,11 @@ pub fn description(key: &PresetKey) -> String {
     describe_key_combo(&[(key.mods, key.usage)], 0)
 }
 
+/// `description` with the key names of the chosen keyboard layout.
+pub fn description_layout(key: &PresetKey, layout: crate::keys::KeyLayout) -> String {
+    crate::keys::describe_key_combo_layout(&[(key.mods, key.usage)], 0, layout)
+}
+
 /// Look up a preset by its `id`.
 pub fn preset(id: &str) -> Option<&'static AppPreset> {
     APP_PRESETS.iter().find(|preset| preset.id == id)
@@ -264,6 +269,16 @@ mod tests {
         assert_eq!(label_for_usage(knob.right.usage), Some("="));
         assert_eq!(description(&knob.left), "-");
         assert_eq!(description(&knob.right), "=");
+        // The written usage never changes with the layout; only the
+        // displayed name does ("^" on JIS, "=" on US).
+        assert_eq!(
+            description_layout(&knob.right, crate::keys::KeyLayout::Jis),
+            "^"
+        );
+        assert_eq!(
+            description_layout(&knob.right, crate::keys::KeyLayout::Us),
+            "="
+        );
         assert!(!knob.left.action_ja.is_empty() && !knob.right.action_ja.is_empty());
     }
 }
