@@ -1557,11 +1557,12 @@ impl App {
                         // The picked key's label under the current
                         // layout; a stale index (e.g. past a layout
                         // switch) disables the button instead.
-                        let picked_label = keys::picker_keys(self.key_layout)
-                            .get(index)
-                            .and_then(|(_, usage)| {
-                                keys::label_for_usage_layout(*usage, self.key_layout)
-                            });
+                        let picked_label =
+                            keys::picker_keys(self.key_layout)
+                                .get(index)
+                                .and_then(|(_, usage)| {
+                                    keys::label_for_usage_layout(*usage, self.key_layout)
+                                });
                         match picked_label {
                             Some(label) => (
                                 i18n::write_button(&self.lang, &target, label),
@@ -1576,8 +1577,7 @@ impl App {
                         }
                     }
                     KeysWrite::Combo { keys, lone } => {
-                        let desc =
-                            keys::describe_key_combo_layout(&keys, lone, self.key_layout);
+                        let desc = keys::describe_key_combo_layout(&keys, lone, self.key_layout);
                         (
                             i18n::write_button(&self.lang, &target, &desc),
                             String::new(),
@@ -2265,8 +2265,10 @@ mod tests {
         assert_eq!(keys_write_plan(None, &[], 0, 0), KeysWrite::None);
 
         // A function picked in the list, editor untouched: the plain
-        // write the old Keys page did.
-        let index = USAGE_KEYS
+        // write the old Keys page did. The index is into the picker
+        // list the GUI shows (shared keys keep their table order in
+        // both layouts).
+        let index = keys::picker_keys(keys::KeyLayout::Jis)
             .iter()
             .position(|(name, _)| *name == "Enter")
             .unwrap();
